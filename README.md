@@ -1,72 +1,102 @@
-# iTerminal
+# iTerminal — Smart AI-Powered Linux Terminal
 
-A smart Linux terminal for beginners. Behaves like a normal shell but with minimal AI help for error correction and natural language prompts.
+## Overview
 
-## Features
-- Accepts user input (command or plain English)
-- Runs valid Linux shell commands and shows real output
-- Translates natural language to shell commands using AI (OpenRouter, free)
-- Detects and corrects mistyped/invalid shell commands, auto-recommends fixes
-- Explains every command in plain English
-- Colored output using `rich`
-- Logs each session to a local `.log` file
-
-## Project Structure
-```
-iterminal.py           # Entry point
-iterminal/
-  __init__.py
-  cli.py               # CLI entry point
-  core.py              # Main REPL logic
-  ai.py                # AI helpers (OpenRouter)
-  shell.py             # Shell helpers
-  logger.py            # Logging
-  config.py            # Config and .env
-requirements.txt
-README.md
-.env                   # (auto-created, holds your API key, gitignored)
-.gitignore
-```
-
-## Setup
-1. Clone this repo or copy the files to your machine.
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. **Run iTerminal:**
-   ```bash
-   python iterminal.py
-   ```
-   - On first run, you'll be prompted for your OpenRouter API key (get one free at [https://openrouter.ai/](https://openrouter.ai/)).
-   - The key is saved to `.env` (which is gitignored for safety).
-
-## Usage
-- Type a Linux command (e.g., `ls -l`) to run it.
-- Type a natural language prompt (e.g., `update my system`) to get an AI-suggested command.
-- If you mistype a command, iTerminal will auto-recommend a fix.
-- For AI-suggested commands, confirm before running: `[Y/n/edit]`.
-- Every command is explained in plain English.
-- All activity is logged to a `.log` file in the current directory.
-
-## Security
-- Your API key is stored in `.env` (never commit this file!).
-- `.env` and log files are in `.gitignore` by default.
-
-## Example
-```
-iTerminal > upadte
-Error: /bin/sh: 1: upadte: not found
-Did you mean: sudo apt update?
-[Explanation] This command updates the package list on a Debian-based system.
-Run? [Y/n/edit]: Y
-...
-```
-
-## Notes
-- No GUI, plugin system, or voice input (yet).
-- Only works online (OpenRouter or OpenAI required for AI features).
-- Works on most Linux distributions.
+iTerminal is a modern Linux terminal emulator designed to make the command-line interface **friendly, accessible, and educational** — especially for beginners. It combines traditional shell functionality with AI-powered natural language understanding, enabling users to enter either standard commands or plain English prompts.
 
 ---
-MIT License 
+
+## Key Features
+
+- **Hybrid Input System**  
+  Accepts both traditional shell commands (e.g., `sudo apt update`) and natural language prompts (e.g., "update my system").
+
+- **AI-Powered Command Interpretation**  
+  Uses AI (like GPT-4) to translate plain language prompts into safe, executable Linux commands.
+
+- **Error Detection & Interactive Correction**  
+  Detects mistyped or failed commands and suggests fixes with user confirmation before execution.
+
+- **Explain Before Execute**  
+  Provides plain English explanations of what commands do and potential risks before running them.
+
+- **Real Shell Integration**  
+  Runs a real Linux shell underneath to show authentic command output, errors, and behavior.
+
+- **Command History & Interactive Chat**  
+  Logs commands, AI prompts, and outputs in a sidebar or chat-style history for easy review and reuse.
+
+- **Safe Mode & User Control**  
+  Commands are only run after user confirmation, preventing accidental or harmful actions.
+
+---
+
+## Why iTerminal?
+
+New Linux users often struggle with remembering commands, understanding errors, and safely performing tasks. iTerminal acts as a smart assistant that:
+
+- Translates natural language to working Linux commands  
+- Helps correct mistakes interactively  
+- Explains commands in simple terms  
+- Builds confidence and Linux skills in a safe environment
+
+---
+
+## Future Enhancements (Planned)
+
+- Voice input for hands-free operation  
+- Support for multiple package managers and Linux distributions  
+- Visual enhancements (graphs, dashboards for command outputs)  
+- Plugin architecture for custom extensions  
+- Offline AI support using local language models
+
+---
+
+## Getting Started
+
+*Instructions to install, configure, and run iTerminal will be added here.*
+
+---
+
+## Technologies
+
+- Linux shell (Bash, Zsh, etc.) integration  
+- AI APIs such as OpenAI GPT for prompt interpretation  
+- Terminal UI libraries (e.g., `rich`, `textual` for Python implementations)  
+- Command execution handled securely with user approval
+
+---
+
+## Contribution
+
+Contributions, suggestions, and feature requests are welcome! Please open issues or pull requests.
+
+---
+
+## License
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy  
+of this software and associated documentation files (the "Software"), to deal  
+in the Software without restriction, including without limitation the rights  
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell  
+copies of the Software, and to permit persons to whom the Software is  
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all  
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR  
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,  
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE  
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER  
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,  
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE  
+SOFTWARE.
+
+---
+
+## Contact
+
+For questions or support, please reach out to [your email or contact info].
