@@ -12,7 +12,7 @@ iTerminal is a modern Linux terminal emulator designed to make the command-line 
   Accepts both traditional shell commands (e.g., `sudo apt update`) and natural language prompts (e.g., "update my system").
 
 - **AI-Powered Command Interpretation**  
-  Uses AI (like GPT-4) to translate plain language prompts into safe, executable Linux commands.
+  Uses AI (like GPT-4 or OpenRouter) to translate plain language prompts into safe, executable Linux commands.
 
 - **Error Detection & Interactive Correction**  
   Detects mistyped or failed commands and suggests fixes with user confirmation before execution.
@@ -52,24 +52,90 @@ New Linux users often struggle with remembering commands, understanding errors, 
 
 ---
 
-## Getting Started
-
-*Instructions to install, configure, and run iTerminal will be added here.*
+## Project Structure
+```
+iterminal.py           # Entry point
+iterminal/
+  __init__.py
+  cli.py               # CLI entry point
+  core.py              # Main REPL logic
+  ai.py                # AI helpers (OpenRouter)
+  shell.py             # Shell helpers
+  logger.py            # Logging
+  config.py            # Config and .env
+  dataset.py           # Command/intent memory
+  suggest.py           # Advanced user input/completion
+  stats.py             # Usage statistics
+requirements.txt
+README.md
+.env                   # (auto-created, holds your API key, gitignored)
+.gitignore
+```
 
 ---
 
-## Technologies
-
-- Linux shell (Bash, Zsh, etc.) integration  
-- AI APIs such as OpenAI GPT for prompt interpretation  
-- Terminal UI libraries (e.g., `rich`, `textual` for Python implementations)  
-- Command execution handled securely with user approval
+## Setup
+1. Clone this repo or copy the files to your machine.
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+   (Make sure `prompt_toolkit` is included in `requirements.txt` for advanced input features.)
+3. **Run iTerminal:**
+   ```bash
+   python iterminal.py
+   ```
+   - On first run, you'll be prompted for your OpenRouter API key (get one free at [https://openrouter.ai/](https://openrouter.ai/)).
+   - The key is saved to `.env` (which is gitignored for safety).
 
 ---
 
-## Contribution
+## Usage
+- Type a Linux command (e.g., `ls -l`) to run it.
+- Type a natural language prompt (e.g., `update my system`) to get an AI-suggested command.
+- If you mistype a command, iTerminal will auto-recommend a fix.
+- For AI-suggested commands, confirm before running: `[Y/n/edit]`.
+- Every command is explained in plain English.
+- All activity is logged to a `.log` file in the current directory.
 
-Contributions, suggestions, and feature requests are welcome! Please open issues or pull requests.
+---
+
+## Troubleshooting
+
+### prompt_toolkit Not Installed
+If you see an error like:
+```
+ModuleNotFoundError: No module named 'prompt_toolkit'
+```
+Install it with:
+```
+pip install prompt_toolkit
+```
+
+### ImportError: Circular Import
+If you see an error like:
+```
+ImportError: cannot import name 'get_user_input' from partially initialized module 'iterminal.suggest' (most likely due to a circular import)
+```
+This is due to circular imports between `suggest.py` and `stats.py`. To fix, remove any unnecessary imports between these files, or refactor so that only one depends on the other.
+
+---
+
+## Security
+- Your API key is stored in `.env` (never commit this file!).
+- `.env` and log files are in `.gitignore` by default.
+
+---
+
+## Example
+```
+iTerminal > upadte
+Error: /bin/sh: 1: upadte: not found
+Did you mean: sudo apt update?
+[Explanation] This command updates the package list on a Debian-based system.
+Run? [Y/n/edit]: Y
+...
+```
 
 ---
 
