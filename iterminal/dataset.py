@@ -35,11 +35,4 @@ class Dataset:
             for item in self.data:
                 if item['prompt'] == matches[0]:
                     return item
-        return None
-
-    def search_in_memory(self, nl):
-        # Simple exact match for now
-        return self.data.get(nl)
-
-    def add_in_memory(self, nl, command, explanation):
-        self.data[nl] = {'command': command, 'explanation': explanation} 
+        return None 

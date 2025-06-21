@@ -1,9 +1,6 @@
 import os
 import json
 from typing import Dict, List
-from .dataset import Dataset
-# from .suggest import get_user_input  # Removed to fix circular import
-# from .stats import UsageStats  # Removed to fix circular import
 
 USAGE_PATH = os.path.expanduser('~/.iterminal_usage.json')
 
@@ -11,7 +8,6 @@ class UsageStats:
     def __init__(self, path: str = USAGE_PATH):
         self.path = path
         self.usage = self.load()
-        self.count = 0
 
     def load(self) -> Dict[str, int]:
         if not os.path.exists(self.path):
@@ -31,7 +27,6 @@ class UsageStats:
             self.usage[command] += 1
         else:
             self.usage[command] = 1
-        self.count += 1
         self.save()
 
     def suggest(self, prefix: str, n: int = 3) -> List[str]:
