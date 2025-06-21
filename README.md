@@ -98,6 +98,19 @@ README.md
 - Every command is explained in plain English.
 - All activity is logged to a `.log` file in the current directory.
 
+## Navigation Features
+- **↑/↓ Arrow Keys**: Navigate through command history
+- **Tab Completion**: Auto-complete file paths and commands
+- **Ctrl+R**: Search through command history
+- **Mouse Support**: Click to position cursor
+- **Auto-suggestions**: See command suggestions as you type
+- **Smart Completions**: Based on your usage history and learned commands
+
+## Special Commands
+- `help` - Show help information
+- `history` - Display command history and usage statistics
+- `exit` - Exit iTerminal
+
 ---
 
 ## Troubleshooting
@@ -166,3 +179,15 @@ SOFTWARE.
 ## Contact
 
 For questions or support, please reach out to [your email or contact info].
+
+## Features
+- Accepts user input (command or plain English)
+- Runs valid Linux shell commands and shows real output
+- Translates natural language to shell commands using AI (OpenRouter, free)
+- Detects and corrects mistyped/invalid shell commands, auto-recommends fixes
+- Explains every command in plain English
+- **Command history navigation** (↑/↓ arrows, Ctrl+R search)
+- **File path completion** (Tab key for auto-completion)
+- **Smart suggestions** from usage history and learned commands
+- Colored output using `rich`
+- Logs each session to a local `.log` file

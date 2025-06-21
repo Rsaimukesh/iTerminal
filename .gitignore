@@ -7,6 +7,11 @@
 iterminal_*.log
 *.log
 
+# iTerminal specific files
+.iterminal_history
+.iterminal_dataset.json
+.iterminal_usage.json
+
 # Python
 __pycache__/
 *.py[cod]
