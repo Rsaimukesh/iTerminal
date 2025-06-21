@@ -1,5 +1,4 @@
 rich
 openai
 requests
-python-dotenv
-prompt_toolkit 
+python-dotenv 
