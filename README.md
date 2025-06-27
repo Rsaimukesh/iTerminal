@@ -8,6 +8,10 @@ iTerminal is a modern Linux terminal emulator designed to make the command-line 
 
 **NEW: Real-time Command Suggestions** - iTerminal now provides intelligent, real-time command suggestions as you type, with fuzzy matching and AI fallback.
 
+**NEW: Inline Ghost-text Suggestions** - iTerminal now shows ghost-text style suggestions that appear inline as you type.
+
+**NEW: Smart Command Execution** - iTerminal now skips explanations for valid shell commands and only shows explanations for natural language prompts or corrections.
+
 ---
 
 ## Key Features
@@ -19,10 +23,19 @@ iTerminal is a modern Linux terminal emulator designed to make the command-line 
   Uses AI (like GPT-4 or OpenRouter) to translate plain language prompts into safe, executable Linux commands.
 
 - **Smart Error Handling & Command Generation**  
-  **NEW**: Automatically detects unclear prompts and generates multiple command interpretations. Handles typos, ambiguous requests, and provides context-based suggestions.
+  Automatically detects unclear prompts and generates multiple command interpretations. Handles typos, ambiguous requests, and provides context-based suggestions.
 
 - **Real-time Command Suggestions**  
-  **NEW**: Intelligent suggestions appear as you type, with fuzzy matching for typos and partial input. Supports TAB completion and right-arrow acceptance.
+  Intelligent suggestions appear as you type, with fuzzy matching for typos and partial input. Supports TAB completion and right-arrow acceptance.
+
+- **Inline Ghost-text Suggestions**  
+  Ghost-text style suggestions appear inline as you type, showing only the remaining part you haven't typed yet.
+
+- **Smart Command Execution**  
+  Skips explanations for valid shell commands, only shows explanations for natural language prompts or corrections.
+
+- **Interactive Command Detection**  
+  Automatically detects and handles interactive commands like `cat`, `nano`, `vim` with helpful suggestions.
 
 - **Error Detection & Interactive Correction**  
   Detects mistyped or failed commands and suggests fixes with user confirmation before execution.
@@ -41,38 +54,39 @@ iTerminal is a modern Linux terminal emulator designed to make the command-line 
 
 ---
 
-## Real-time Command Suggestions
+## Smart Command Execution
 
-iTerminal now provides intelligent, real-time command suggestions that appear as you type:
+iTerminal now intelligently handles command execution based on input type:
 
-### Smart Suggestion Sources
-- **📚 Dataset Suggestions**: From previously learned commands in `~/.iterminal_dataset.json`
-- **🔥 Usage-based Suggestions**: Based on your command history and frequency
-- **🔍 Fuzzy Matching**: Handles typos and partial input (e.g., "upda" → "sudo apt update")
-- **💡 Context-based Suggestions**: Based on keywords and common patterns
-- **🤖 AI Fallback**: When no good matches found, AI generates suggestions
+### When Explanations Are Shown
+- ✅ **Natural language prompts** (e.g., "check my IP" → `curl ifconfig.me`)
+- ✅ **AI-corrected commands** (e.g., "upadte" → corrected to "update")
+- ✅ **Safety-flagged commands** (commands requiring confirmation)
+- ✅ **Failed commands** (with AI suggestions for fixes)
 
-### How to Use
-- **Type naturally**: Start typing and see suggestions appear
-- **TAB completion**: Press Tab to cycle through suggestions
-- **Right arrow**: Press → to accept the current suggestion
-- **Shift+Tab**: Reverse cycle through suggestions
-- **Real-time display**: Suggestions update as you type
+### When Explanations Are Skipped
+- ✅ **Valid shell commands** (e.g., `ls`, `cd`, `git status`)
+- ✅ **Commands that execute successfully** (no errors)
+- ✅ **Direct user input** (not AI-generated)
 
 ### Examples
 ```
-Input: "upda" → Suggestion: "sudo apt update && sudo apt upgrade"
-Input: "show" → Suggestion: "ps aux" (show processes)
-Input: "find" → Suggestion: "find . -name '*.py'" (find Python files)
-Input: "instal" → Suggestion: "sudo apt install package-name" (typo correction)
-```
+# Natural language - explanation shown
+iTerminal > check my IP
+┌─ AI Suggestion ──────────────────────────────────────┐
+│ curl ifconfig.me                                     │
+└──────────────────────────────────────────────────────┘
+This command fetches your public IP address from ifconfig.me
 
-### Keyboard Shortcuts
-- **Tab**: Cycle through completions
-- **Shift+Tab**: Reverse cycle through completions  
-- **→ (Right arrow)**: Accept current suggestion
-- **↑/↓**: Navigate command history
-- **Ctrl+R**: Search command history
+# Direct command - no explanation
+iTerminal > ls
+file1.txt  file2.txt  directory/
+
+# Failed command - correction shown
+iTerminal > upadte
+Error: command not found
+Did you mean: update?
+```
 
 ---
 
@@ -107,23 +121,46 @@ You type: "find"     → Ghost-text: " python"
 - **💡 Context**: Context-based suggestions based on keywords
 - **🤖 AI**: AI-generated suggestions when no good matches found
 
-### Testing Inline Suggestions
-Run the test script to see inline suggestions in action:
-```bash
-python3 test_inline_suggestions.py
+---
+
+## Real-time Command Suggestions
+
+iTerminal provides intelligent, real-time command suggestions that appear as you type:
+
+### Smart Suggestion Sources
+- **📚 Dataset Suggestions**: From previously learned commands in `~/.iterminal_dataset.json`
+- **🔥 Usage-based Suggestions**: Based on your command history and frequency
+- **🔍 Fuzzy Matching**: Handles typos and partial input (e.g., "upda" → "sudo apt update")
+- **💡 Context-based Suggestions**: Based on keywords and common patterns
+- **🤖 AI Fallback**: When no good matches found, AI generates suggestions
+
+### How to Use
+- **Type naturally**: Start typing and see suggestions appear
+- **TAB completion**: Press Tab to cycle through suggestions
+- **Right arrow**: Press → to accept the current suggestion
+- **Shift+Tab**: Reverse cycle through suggestions
+- **Real-time display**: Suggestions update as you type
+
+### Examples
+```
+Input: "upda" → Suggestion: "sudo apt update && sudo apt upgrade"
+Input: "show" → Suggestion: "ps aux" (show processes)
+Input: "find" → Suggestion: "find . -name '*.py'" (find Python files)
+Input: "instal" → Suggestion: "sudo apt install package-name" (typo correction)
 ```
 
-This will demonstrate:
-- Ghost-text suggestions as you type
-- Smart partial text completion
-- Multiple suggestion sources
-- Tab and arrow key acceptance
+### Keyboard Shortcuts
+- **Tab**: Cycle through completions
+- **Shift+Tab**: Reverse cycle through completions  
+- **→ (Right arrow)**: Accept current suggestion
+- **↑/↓**: Navigate command history
+- **Ctrl+R**: Search command history
 
 ---
 
 ## Enhanced Smart Command Generation
 
-iTerminal now includes advanced AI-powered features to handle unclear or incorrect prompts:
+iTerminal includes advanced AI-powered features to handle unclear or incorrect prompts:
 
 ### Automatic Typo Correction
 - Detects and corrects common typos in natural language
@@ -156,12 +193,49 @@ iTerminal now includes advanced AI-powered features to handle unclear or incorre
 
 ---
 
+## Interactive Command Handling
+
+iTerminal intelligently detects and handles interactive commands:
+
+### Automatically Detected Commands
+- **Text editors**: `nano`, `vim`, `vi`, `emacs`
+- **Pagers**: `less`, `more`, `man`
+- **System monitors**: `top`, `htop`
+- **Input-waiting commands**: `cat` (without args), `tee`, `read`
+- **Remote access**: `ssh`, `telnet`, `ftp`, `sftp`
+- **Terminal multiplexers**: `screen`, `tmux`
+
+### Helpful Alternatives
+When interactive commands are detected, iTerminal suggests alternatives:
+- `nano` → `cat` (for viewing files)
+- `vim` → `cat` (for viewing files)
+- `top` → `ps aux` (for viewing processes)
+- `cat` (no args) → `cat filename.txt` (with examples)
+
+### Example
+```
+iTerminal > cat
+Command 'cat' is waiting for input. Please provide a filename or use Ctrl+D to exit.
+
+💡 Examples:
+- cat filename.txt
+- cat /etc/passwd
+- echo 'text' | cat
+
+💡 To exit input mode, press Ctrl+C
+```
+
+---
+
 ## Why iTerminal?
 
 New Linux users often struggle with remembering commands, understanding errors, and safely performing tasks. iTerminal acts as a smart assistant that:
 
 - Translates natural language to working Linux commands  
-- **NEW**: Handles unclear or wrong prompts intelligently
+- Handles unclear or wrong prompts intelligently
+- Provides real-time suggestions as you type
+- Shows inline ghost-text completions
+- Skips explanations for valid commands (cleaner experience)
 - Helps correct mistakes interactively  
 - Explains commands in simple terms  
 - Builds confidence and Linux skills in a safe environment
@@ -175,6 +249,8 @@ New Linux users often struggle with remembering commands, understanding errors, 
 - Visual enhancements (graphs, dashboards for command outputs)  
 - Plugin architecture for custom extensions  
 - Offline AI support using local language models
+- Enhanced inline suggestion customization
+- Command aliases and shortcuts
 
 ---
 
@@ -184,15 +260,17 @@ iterminal.py           # Entry point
 iterminal/
   __init__.py
   cli.py               # CLI entry point
-  core.py              # Main REPL logic (enhanced)
+  core.py              # Main REPL logic (enhanced with smart execution)
   ai.py                # AI helpers (enhanced with smart generation)
-  shell.py             # Shell helpers
+  shell.py             # Shell helpers (enhanced with interactive command detection)
   logger.py            # Logging
   config.py            # Config and .env
   dataset.py           # Command/intent memory
-  suggest.py           # Advanced user input/completion
+  suggest.py           # Advanced user input/completion with inline suggestions
   stats.py             # Usage statistics
-test_smart_commands.py # Test script for new functionality
+test_smart_commands.py # Test script for smart command generation
+test_suggestions.py    # Test script for real-time suggestions
+test_inline_suggestions.py # Test script for inline suggestions
 requirements.txt
 README.md
 .env                   # (auto-created, holds your API key, gitignored)
