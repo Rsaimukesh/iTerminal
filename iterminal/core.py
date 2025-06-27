@@ -442,7 +442,7 @@ def main_loop():
     
     while True:
         try:
-            user_input = get_user_input(dataset, stats, prompt_text="[bold blue]iTerminal >[/bold blue] ")
+            user_input = get_user_input(dataset, stats, prompt_text="iTerminal > ")
         except (EOFError, KeyboardInterrupt):
             console.print("\n[bold red]Exiting iTerminal. Goodbye!")
             session_manager.save_session()

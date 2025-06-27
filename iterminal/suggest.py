@@ -102,12 +102,13 @@ COMMAND_TEMPLATES = {
 }
 
 class SmartAutoSuggest(AutoSuggest):
-    """Enhanced auto-suggest that provides real-time command suggestions"""
+    """Enhanced auto-suggest that provides real-time command suggestions with inline ghost-text"""
     
     def __init__(self, dataset: Dataset, stats: UsageStats):
         self.dataset = dataset
         self.stats = stats
         self.suggestion_cache = {}
+        self.last_suggestion = None
     
     def get_suggestion(self, buffer, document) -> Optional[Suggestion]:
         text = document.text_before_cursor.strip()
@@ -123,10 +124,29 @@ class SmartAutoSuggest(AutoSuggest):
         suggestions = self._get_suggestions(text)
         
         if suggestions:
-            # Return the best suggestion
+            # Return the best suggestion for inline display
             best_suggestion = suggestions[0]
-            suggestion_obj = Suggestion(best_suggestion['command'])
+            suggestion_text = best_suggestion['command']
+            
+            # For inline suggestions, we want to show only the remaining part
+            # that the user hasn't typed yet
+            if text.lower() in suggestion_text.lower():
+                # Find where the text matches and show the rest
+                idx = suggestion_text.lower().find(text.lower())
+                if idx == 0:  # Text is at the beginning
+                    remaining = suggestion_text[len(text):]
+                    if remaining:
+                        suggestion_text = remaining
+                else:
+                    # Text is in the middle, show the full command
+                    suggestion_text = best_suggestion['command']
+            else:
+                # No direct match, show the full command
+                suggestion_text = best_suggestion['command']
+            
+            suggestion_obj = Suggestion(suggestion_text)
             self.suggestion_cache[text] = suggestion_obj
+            self.last_suggestion = best_suggestion
             return suggestion_obj
         
         return None
@@ -432,7 +452,7 @@ class CommandCompleter(Completer):
                     )
 
 def get_user_input(dataset: Dataset, stats: UsageStats, prompt_text: str = 'iTerminal > '):
-    """Enhanced user input with real-time suggestions"""
+    """Enhanced user input with real-time inline suggestions"""
     if not PROMPT_TOOLKIT_AVAILABLE:
         # Fallback to simple rich prompt
         return Prompt.ask(prompt_text)
@@ -455,8 +475,14 @@ def get_user_input(dataset: Dataset, stats: UsageStats, prompt_text: str = 'iTer
     
     @kb.add('tab')
     def _(event):
-        """Handle tab completion"""
-        event.app.current_buffer.complete_next()
+        """Accept current suggestion with Tab"""
+        buffer = event.app.current_buffer
+        if buffer.suggestion:
+            # Insert the suggestion text
+            buffer.insert_text(buffer.suggestion.text)
+        else:
+            # If no suggestion, cycle through completions
+            buffer.complete_next()
     
     @kb.add('s-tab')
     def _(event):
@@ -470,25 +496,38 @@ def get_user_input(dataset: Dataset, stats: UsageStats, prompt_text: str = 'iTer
         if buffer.suggestion:
             buffer.insert_text(buffer.suggestion.text)
     
+    @kb.add('ctrl-space')
+    def _(event):
+        """Show all available suggestions"""
+        buffer = event.app.current_buffer
+        buffer.complete_next()
+    
     # Create enhanced completer and auto-suggest
     completer = CommandCompleter(dataset, stats)
     auto_suggest = SmartAutoSuggest(dataset, stats)
     
     try:
-        # Use prompt_toolkit with enhanced features
+        # Use prompt_toolkit with enhanced features for inline suggestions
         result = prompt(
             prompt_text,
-            completer=completer,
-            complete_while_typing=True,
+            # Temporarily disable completer and auto-suggest to debug input corruption
+            # completer=completer,
+            # auto_suggest=auto_suggest,
+            complete_while_typing=False,
             history=FileHistory(history_file),
-            auto_suggest=auto_suggest,
             key_bindings=kb,
-            complete_in_thread=True,  # Better performance
+            complete_in_thread=False,  # Disable threading to avoid race conditions
             mouse_support=True,       # Mouse support
             enable_history_search=True,  # Ctrl+R for history search
             complete_style='readline',  # Better completion style
+            # Enhanced styling for inline suggestions
+            style=None,  # Use default style for better ghost-text visibility
+            # Ensure proper input handling
+            input_processors=None,
+            # Disable any potential input corruption
+            enable_system_prompt=False,
         )
-        return result
+        return result.strip()  # Ensure clean input
     except Exception as e:
         # Fallback to simple rich prompt if prompt_toolkit fails
         return Prompt.ask(prompt_text)

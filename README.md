@@ -76,6 +76,51 @@ Input: "instal" → Suggestion: "sudo apt install package-name" (typo correction
 
 ---
 
+## Inline Command Suggestions
+
+iTerminal now features **ghost-text style inline suggestions** that appear as you type:
+
+### How Inline Suggestions Work
+- **Ghost-text display**: Suggestions appear as faint text after your cursor
+- **Partial completion**: Shows only the remaining part you haven't typed yet
+- **Smart matching**: Intelligently matches your input to commands
+
+### Examples of Inline Suggestions
+```
+You type: "upda"     → Ghost-text: "te system"
+You type: "check"    → Ghost-text: " memory" or " disk"
+You type: "git"      → Ghost-text: " status"
+You type: "list"     → Ghost-text: " files"
+You type: "find"     → Ghost-text: " python"
+```
+
+### Accepting Inline Suggestions
+- **Tab**: Accept the current inline suggestion
+- **→ (Right arrow)**: Accept the current inline suggestion
+- **Ctrl+Space**: Show all available completions
+- **Shift+Tab**: Cycle through completions in reverse
+
+### Suggestion Sources (with icons)
+- **📚 Dataset**: From your learned commands in `~/.iterminal_dataset.json`
+- **🔥 Stats**: From your command history and usage frequency
+- **🔍 Fuzzy**: Fuzzy matching for typos and partial input
+- **💡 Context**: Context-based suggestions based on keywords
+- **🤖 AI**: AI-generated suggestions when no good matches found
+
+### Testing Inline Suggestions
+Run the test script to see inline suggestions in action:
+```bash
+python3 test_inline_suggestions.py
+```
+
+This will demonstrate:
+- Ghost-text suggestions as you type
+- Smart partial text completion
+- Multiple suggestion sources
+- Tab and arrow key acceptance
+
+---
+
 ## Enhanced Smart Command Generation
 
 iTerminal now includes advanced AI-powered features to handle unclear or incorrect prompts:
