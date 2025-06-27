@@ -2,4 +2,6 @@ rich
 openai
 requests
 python-dotenv
-prompt_toolkit 
+prompt_toolkit
+fuzzywuzzy
+python-Levenshtein 

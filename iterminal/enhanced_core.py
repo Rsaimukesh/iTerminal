@@ -4,12 +4,8 @@ from rich.text import Text
 from rich.panel import Panel
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.live import Live
-from rich.layout import Layout
-from rich.columns import Columns
-from rich.align import Align
 from .shell import is_probably_shell_command, run_shell_command
-from .ai import explain_command, translate_nl_to_shell, correct_shell_command, suggest_related_commands, analyze_command_safety, get_command_complexity, smart_command_generation, suggest_common_commands_for_context
+from .ai import explain_command, translate_nl_to_shell, correct_shell_command, suggest_related_commands, analyze_command_safety, get_command_complexity
 from .logger import log_entry
 from .config import get_api_key
 from .dataset import Dataset
@@ -22,21 +18,6 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 
 console = Console()
-
-# Enhanced command aliases for common tasks
-COMMAND_ALIASES = {
-    'help': 'show help information',
-    'history': 'show command history',
-    'clear': 'clear the terminal',
-    'stats': 'show usage statistics',
-    'dataset': 'show learned commands',
-    'suggest': 'get command suggestions',
-    'safety': 'analyze command safety',
-    'session': 'show session information',
-    'export': 'export command history',
-    'import': 'import commands from file',
-    'fix': 'fix unclear or wrong prompt'
-}
 
 class SessionManager:
     """Enhanced session management with persistence and analytics"""
@@ -79,7 +60,7 @@ class SessionManager:
         """Get current session statistics"""
         duration = datetime.now() - self.session_start
         return {
-            'duration': str(duration).split('.')[0],  # Remove microseconds
+            'duration': str(duration).split('.')[0],
             'commands_executed': self.commands_executed,
             'ai_queries': self.ai_queries,
             'errors_encountered': self.errors_encountered,
@@ -88,7 +69,6 @@ class SessionManager:
 
 def confirm_command(cmd: str, explanation: str, safety_analysis: Optional[Dict[str, Any]] = None) -> str:
     """Enhanced command confirmation with safety analysis"""
-    # Create a more informative panel
     panel_content = f"[bold yellow]{cmd}[/bold yellow]\n\n[italic cyan]{explanation}[/italic cyan]"
     
     if safety_analysis:
@@ -115,16 +95,16 @@ def confirm_command(cmd: str, explanation: str, safety_analysis: Optional[Dict[s
     
     return Prompt.ask("Run this command?", choices=choices, default="Y")
 
-def show_help():
-    """Display help information"""
+def show_enhanced_help():
+    """Enhanced help display with more detailed information"""
     help_text = """
-[bold green]iTerminal Help[/bold green]
+[bold green]iTerminal Enhanced Help[/bold green]
 
 [bold]Basic Usage:[/bold]
 • Type Linux commands directly: [cyan]ls -la[/cyan]
 • Use natural language: [cyan]show me running processes[/cyan]
 • Get command explanations automatically
-• Smart handling of unclear or wrong prompts
+• Safety analysis for potentially dangerous commands
 
 [bold]Navigation:[/bold]
 • [cyan]↑/↓ arrows[/cyan] - Navigate command history
@@ -138,33 +118,32 @@ def show_help():
 • 📚 Commands from your saved dataset
 • 🔧 Common Linux commands
 • Natural language pattern matching
-• Smart error correction and typo fixing
+• Safety-aware suggestions
 
 [bold]Special Commands:[/bold]
 • [cyan]help[/cyan] - Show this help
 • [cyan]history[/cyan] - Show command history
 • [cyan]stats[/cyan] - Show usage statistics
 • [cyan]dataset[/cyan] - Show learned commands
+• [cyan]session[/cyan] - Show session information
+• [cyan]safety[/cyan] - Analyze command safety
+• [cyan]export[/cyan] - Export command history
 • [cyan]clear[/cyan] - Clear terminal
-• [cyan]fix[/cyan] - Fix unclear or wrong prompts
 • [cyan]exit[/cyan] - Exit iTerminal
 
 [bold]AI Features:[/bold]
 • Automatic command correction
 • Natural language translation
-• Command explanations
+• Command explanations with complexity levels
 • Related command suggestions
-• Smart prompt interpretation
-• Typo correction and suggestions
-• Multiple command alternatives
+• Safety analysis and warnings
+• Response caching for faster performance
 
-[bold]Error Handling:[/bold]
-• Automatic detection of unclear prompts
-• Multiple interpretation attempts
-• Context-based command suggestions
-• Typo correction for natural language
-• Alternative command suggestions
-• Interactive prompt fixing with 'fix' command
+[bold]Safety Features:[/bold]
+• Automatic risk assessment
+• Warning for dangerous commands
+• Safer alternative suggestions
+• Confirmation prompts for risky operations
 
 [bold]Tips:[/bold]
 • Commands are automatically learned and remembered
@@ -172,10 +151,9 @@ def show_help():
 • Use Tab for file path completion: [cyan]cat /home/sai/Doc[Tab][/cyan]
 • Type partial commands to see smart suggestions
 • Natural language triggers contextual suggestions
-• If a prompt is unclear, use the 'fix' command for help
-• The system will automatically try to interpret unclear inputs
+• Session data is automatically saved and restored
 """
-    console.print(Panel(help_text, title="[Help]", border_style="green"))
+    console.print(Panel(help_text, title="[Enhanced Help]", border_style="green"))
 
 def show_session_info(session_manager: SessionManager):
     """Display current session information"""
@@ -191,71 +169,6 @@ def show_session_info(session_manager: SessionManager):
         border_style="blue"
     )
     console.print(session_panel)
-
-def show_history(dataset: Dataset, stats: UsageStats):
-    """Enhanced command history display"""
-    history_file = os.path.expanduser('~/.iterminal_history')
-    
-    if os.path.exists(history_file):
-        try:
-            with open(history_file, 'r') as f:
-                lines = f.readlines()
-                if lines:
-                    console.print("[bold]Recent Commands:[/bold]")
-                    for i, line in enumerate(lines[-20:], 1):  # Last 20 commands
-                        if line.strip():
-                            console.print(f"  [dim]{len(lines)-20+i:2d}.[/dim] [cyan]{line.strip()}[/cyan]")
-                else:
-                    console.print("[yellow]No command history found.[/yellow]")
-        except Exception as e:
-            console.print(f"[red]Error reading history: {e}[/red]")
-    else:
-        console.print("[yellow]No command history file found.[/yellow]")
-    
-    # Also show usage statistics
-    if hasattr(stats, 'usage') and stats.usage:
-        console.print("\n[bold]Most Used Commands:[/bold]")
-        for cmd, count in sorted(stats.usage.items(), key=lambda x: x[1], reverse=True)[:5]:
-            console.print(f"  [green]{count}x[/green] [cyan]{cmd}[/cyan]")
-
-def show_stats(stats: UsageStats):
-    """Enhanced usage statistics display"""
-    if hasattr(stats, 'usage') and stats.usage:
-        total_commands = sum(stats.usage.values())
-        unique_commands = len(stats.usage)
-        most_used = max(stats.usage.items(), key=lambda x: x[1])
-        
-        # Create a more detailed stats panel
-        stats_content = f"[bold]Total Commands:[/bold] {total_commands}\n"
-        stats_content += f"[bold]Unique Commands:[/bold] {unique_commands}\n"
-        stats_content += f"[bold]Most Used:[/bold] {most_used[0]} ({most_used[1]} times)\n"
-        stats_content += f"[bold]Average Usage:[/bold] {total_commands / unique_commands:.1f} times per command"
-        
-        console.print(Panel(stats_content, title="[Usage Statistics]", border_style="green"))
-    else:
-        console.print("[yellow]No usage statistics available yet.[/yellow]")
-
-def show_dataset(dataset: Dataset):
-    """Enhanced learned commands display"""
-    if hasattr(dataset, 'data') and dataset.data:
-        table = Table(title="Learned Commands", show_header=True, header_style="bold magenta")
-        table.add_column("Natural Language", style="cyan", width=30)
-        table.add_column("Command", style="yellow", width=25)
-        table.add_column("Explanation", style="green", width=40)
-        table.add_column("Complexity", style="blue", width=12)
-        
-        for item in dataset.data[-10:]:  # Last 10 learned commands
-            complexity = get_command_complexity(item['command'])
-            table.add_row(
-                item['prompt'][:27] + "..." if len(item['prompt']) > 30 else item['prompt'],
-                item['command'][:22] + "..." if len(item['command']) > 25 else item['command'],
-                item['explanation'][:37] + "..." if len(item['explanation']) > 40 else item['explanation'],
-                complexity.capitalize()
-            )
-        
-        console.print(table)
-    else:
-        console.print("[yellow]No commands learned yet.[/yellow]")
 
 def analyze_command_safety_wrapper(cmd: str):
     """Wrapper to analyze and display command safety"""
@@ -319,112 +232,7 @@ def export_history():
     else:
         console.print("[yellow]No command history to export.[/yellow]")
 
-def handle_unclear_prompt(user_input: str, dataset: Dataset, stats: UsageStats):
-    """Handle unclear or wrong prompts with smart command generation"""
-    console.print(f"[yellow]I'm not sure what you mean by '{user_input}'. Let me try to help...[/yellow]")
-    
-    # Try smart command generation
-    smart_result = smart_command_generation(user_input)
-    
-    if smart_result['method'] == 'typo_correction':
-        console.print(f"[green]I think you meant: {smart_result['explanation']}[/green]")
-    elif smart_result['method'] == 'interpretation':
-        console.print(f"[green]{smart_result['explanation']}[/green]")
-    elif smart_result['method'] == 'generation':
-        console.print(f"[green]{smart_result['explanation']}[/green]")
-    
-    # Show the suggested command
-    shell_cmd = smart_result['command']
-    explanation = explain_command(shell_cmd)
-    
-    console.print(Panel(Text(shell_cmd, style="bold yellow"), title="[Smart Suggestion]"))
-    console.print(Text(explanation, style="italic cyan"))
-    
-    # Show alternatives if available
-    if smart_result.get('alternatives'):
-        console.print("\n[bold]Alternative interpretations:[/bold]")
-        for i, alt in enumerate(smart_result['alternatives'][:3], 1):
-            console.print(f"  {i}. [cyan]{alt}[/cyan]")
-    
-    # Show context-based suggestions
-    context_suggestions = suggest_common_commands_for_context(user_input)
-    if context_suggestions:
-        console.print("\n[bold]Related commands you might want:[/bold]")
-        for i, suggestion in enumerate(context_suggestions[:3], 1):
-            console.print(f"  {i}. [green]{suggestion}[/green]")
-    
-    # Ask user what to do
-    choices = ["Y", "n", "edit", "alternatives", "suggestions", "help"]
-    choice = Prompt.ask("Run the suggested command?", choices=choices, default="Y")
-    
-    if choice == "Y":
-        stats.add(shell_cmd)
-        ret, out, err = run_shell_command(shell_cmd)
-        if out:
-            console.print(Text(out, style="green"))
-        if err:
-            console.print(Text(err, style="red"))
-        log_entry(f"UNCLEAR_PROMPT: {user_input}\nSMART_CMD: {shell_cmd}\nOUT: {out}\nERR: {err}\nEXPLAIN: {explanation}")
-        
-        # Auto-learn the successful command
-        if ret == 0:
-            dataset.add(user_input, shell_cmd, explanation)
-    
-    elif choice == "edit":
-        edited = Prompt.ask("Edit command", default=shell_cmd)
-        stats.add(edited)
-        explanation2 = explain_command(edited)
-        console.print(Text(explanation2, style="cyan"))
-        ret2, out2, err2 = run_shell_command(edited)
-        if out2:
-            console.print(Text(out2, style="green"))
-        if err2:
-            console.print(Text(err2, style="red"))
-        log_entry(f"EDITED_UNCLEAR: {edited}\nOUT: {out2}\nERR: {err2}\nEXPLAIN: {explanation2}")
-    
-    elif choice == "alternatives":
-        if smart_result.get('alternatives'):
-            console.print("\n[bold]Choose an alternative:[/bold]")
-            for i, alt in enumerate(smart_result['alternatives'], 1):
-                console.print(f"  {i}. [cyan]{alt}[/cyan]")
-            try:
-                alt_choice = int(Prompt.ask("Select alternative (number)", default="1"))
-                if 1 <= alt_choice <= len(smart_result['alternatives']):
-                    selected_alt = smart_result['alternatives'][alt_choice - 1]
-                    stats.add(selected_alt)
-                    ret3, out3, err3 = run_shell_command(selected_alt)
-                    if out3:
-                        console.print(Text(out3, style="green"))
-                    if err3:
-                        console.print(Text(err3, style="red"))
-                    log_entry(f"ALTERNATIVE_CMD: {selected_alt}\nOUT: {out3}\nERR: {err3}")
-            except ValueError:
-                console.print("[red]Invalid selection.[/red]")
-    
-    elif choice == "suggestions":
-        context_suggestions = suggest_common_commands_for_context(user_input)
-        if context_suggestions:
-            console.print("\n[bold]Choose a suggestion:[/bold]")
-            for i, suggestion in enumerate(context_suggestions, 1):
-                console.print(f"  {i}. [green]{suggestion}[/green]")
-            try:
-                sug_choice = int(Prompt.ask("Select suggestion (number)", default="1"))
-                if 1 <= sug_choice <= len(context_suggestions):
-                    selected_sug = context_suggestions[sug_choice - 1]
-                    stats.add(selected_sug)
-                    ret4, out4, err4 = run_shell_command(selected_sug)
-                    if out4:
-                        console.print(Text(out4, style="green"))
-                    if err4:
-                        console.print(Text(err4, style="red"))
-                    log_entry(f"SUGGESTION_CMD: {selected_sug}\nOUT: {out4}\nERR: {err4}")
-            except ValueError:
-                console.print("[red]Invalid selection.[/red]")
-    
-    elif choice == "help":
-        show_help()
-
-def main_loop():
+def enhanced_main_loop():
     """Enhanced main loop with better session management and error handling"""
     get_api_key()  # Ensure API key is set
     dataset = Dataset()
@@ -432,7 +240,7 @@ def main_loop():
     session_manager = SessionManager()
     
     # Welcome message with session info
-    console.print("[bold green]Welcome to iTerminal! Type your command or ask in plain English. Type 'exit' or Ctrl-D to quit.[/bold green]")
+    console.print("[bold green]Welcome to iTerminal Enhanced! Type your command or ask in plain English. Type 'exit' or Ctrl-D to quit.[/bold green]")
     console.print("[dim]Type 'help' for more information[/dim]")
     
     # Show session info if returning user
@@ -442,9 +250,9 @@ def main_loop():
     
     while True:
         try:
-            user_input = get_user_input(dataset, stats, prompt_text="[bold blue]iTerminal >[/bold blue] ")
+            user_input = get_user_input(dataset, stats, prompt_text="[bold blue]iTerminal Enhanced >[/bold blue] ")
         except (EOFError, KeyboardInterrupt):
-            console.print("\n[bold red]Exiting iTerminal. Goodbye!")
+            console.print("\n[bold red]Exiting iTerminal Enhanced. Goodbye!")
             session_manager.save_session()
             break
         
@@ -457,7 +265,7 @@ def main_loop():
         
         # Handle help command
         if user_input.strip().lower() == 'help':
-            show_help()
+            show_enhanced_help()
             continue
         
         log_entry(f"USER: {user_input}")
@@ -485,14 +293,7 @@ def main_loop():
         elif user_input.strip().lower() == 'clear':
             console.clear()
             continue
-        elif user_input.strip().lower() == 'fix':
-            unclear_input = Prompt.ask("Enter the unclear prompt to fix")
-            handle_unclear_prompt(unclear_input, dataset, stats)
-            continue
         
-        # Flag tracks input type
-        was_natural_prompt = False
-
         # 1. Try as shell command
         if is_probably_shell_command(user_input):
             session_manager.commands_executed += 1
@@ -520,9 +321,9 @@ def main_loop():
             if ret == 0:
                 if out:
                     console.print(Text(out, style="green"))
-                # Skip explanation for valid shell commands that executed successfully
-                # Only show explanation if it was a natural language prompt or if there was an error
-                log_entry(f"CMD: {user_input}\nOUT: {out}")
+                explanation = explain_command(user_input)
+                console.print(Panel(Text(explanation, style="cyan"), title="[Explanation]"))
+                log_entry(f"CMD: {user_input}\nOUT: {out}\nEXPLAIN: {explanation}")
             else:
                 session_manager.errors_encountered += 1
                 # Error: ask AI for correction
@@ -558,8 +359,7 @@ def main_loop():
                 else:
                     console.print("[red]No recommendation available from AI.[/red]")
         else:
-            # 2. Natural language: try smart command generation first
-            was_natural_prompt = True  # Set flag for natural language input
+            # 2. Natural language: prefer dataset before AI
             session_manager.ai_queries += 1
             dataset_result = dataset.search(user_input)
             if dataset_result:
@@ -569,18 +369,8 @@ def main_loop():
                 console.print(Text(explanation, style="italic cyan"))
                 choice = Prompt.ask("Run this command?", choices=["Y", "n", "edit", "related"], default="Y")
             else:
-                # Use smart command generation for unclear prompts
-                smart_result = smart_command_generation(user_input)
-                shell_cmd = smart_result['command']
+                shell_cmd = translate_nl_to_shell(user_input)
                 explanation = explain_command(shell_cmd)
-                
-                # If the result seems unclear or generic, offer enhanced help
-                if (smart_result['method'] != 'translation' or 
-                    shell_cmd in ['ls', 'pwd', 'whoami'] or 
-                    shell_cmd.startswith('[AI error')):
-                    handle_unclear_prompt(user_input, dataset, stats)
-                    continue
-                
                 choice = confirm_command(shell_cmd, explanation)
                 # Auto-learn: save to dataset if AI translation is successful
                 if shell_cmd and not shell_cmd.startswith('[AI error'):
@@ -593,9 +383,6 @@ def main_loop():
                     console.print(Text(out, style="green"))
                 if err:
                     console.print(Text(err, style="red"))
-                # Show explanation for natural language prompts (was_natural_prompt == True)
-                if was_natural_prompt:
-                    console.print(Panel(Text(explanation, style="cyan"), title="[Explanation]"))
                 log_entry(f"NL_CMD: {user_input}\nSHELL: {shell_cmd}\nOUT: {out}\nERR: {err}\nEXPLAIN: {explanation}")
             elif choice == "edit":
                 edited = Prompt.ask("Edit command", default=shell_cmd)
@@ -614,4 +401,7 @@ def main_loop():
     
     # Save session data on exit
     session_manager.save_session()
-    console.print(f"[bold magenta]Session log saved. Goodbye!") 
+    console.print(f"[bold magenta]Session log saved. Goodbye!")
+
+# Import existing functions for compatibility
+from .core import show_help, show_history, show_stats, show_dataset, confirm_command as old_confirm_command 

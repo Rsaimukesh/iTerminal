@@ -4,6 +4,10 @@
 
 iTerminal is a modern Linux terminal emulator designed to make the command-line interface **friendly, accessible, and educational** — especially for beginners. It combines traditional shell functionality with AI-powered natural language understanding, enabling users to enter either standard commands or plain English prompts.
 
+**NEW: Enhanced Smart Command Generation** - iTerminal now intelligently handles wrong, unclear, or ambiguous prompts by generating multiple command interpretations and providing helpful suggestions.
+
+**NEW: Real-time Command Suggestions** - iTerminal now provides intelligent, real-time command suggestions as you type, with fuzzy matching and AI fallback.
+
 ---
 
 ## Key Features
@@ -13,6 +17,12 @@ iTerminal is a modern Linux terminal emulator designed to make the command-line 
 
 - **AI-Powered Command Interpretation**  
   Uses AI (like GPT-4 or OpenRouter) to translate plain language prompts into safe, executable Linux commands.
+
+- **Smart Error Handling & Command Generation**  
+  **NEW**: Automatically detects unclear prompts and generates multiple command interpretations. Handles typos, ambiguous requests, and provides context-based suggestions.
+
+- **Real-time Command Suggestions**  
+  **NEW**: Intelligent suggestions appear as you type, with fuzzy matching for typos and partial input. Supports TAB completion and right-arrow acceptance.
 
 - **Error Detection & Interactive Correction**  
   Detects mistyped or failed commands and suggests fixes with user confirmation before execution.
@@ -31,11 +41,82 @@ iTerminal is a modern Linux terminal emulator designed to make the command-line 
 
 ---
 
+## Real-time Command Suggestions
+
+iTerminal now provides intelligent, real-time command suggestions that appear as you type:
+
+### Smart Suggestion Sources
+- **📚 Dataset Suggestions**: From previously learned commands in `~/.iterminal_dataset.json`
+- **🔥 Usage-based Suggestions**: Based on your command history and frequency
+- **🔍 Fuzzy Matching**: Handles typos and partial input (e.g., "upda" → "sudo apt update")
+- **💡 Context-based Suggestions**: Based on keywords and common patterns
+- **🤖 AI Fallback**: When no good matches found, AI generates suggestions
+
+### How to Use
+- **Type naturally**: Start typing and see suggestions appear
+- **TAB completion**: Press Tab to cycle through suggestions
+- **Right arrow**: Press → to accept the current suggestion
+- **Shift+Tab**: Reverse cycle through suggestions
+- **Real-time display**: Suggestions update as you type
+
+### Examples
+```
+Input: "upda" → Suggestion: "sudo apt update && sudo apt upgrade"
+Input: "show" → Suggestion: "ps aux" (show processes)
+Input: "find" → Suggestion: "find . -name '*.py'" (find Python files)
+Input: "instal" → Suggestion: "sudo apt install package-name" (typo correction)
+```
+
+### Keyboard Shortcuts
+- **Tab**: Cycle through completions
+- **Shift+Tab**: Reverse cycle through completions  
+- **→ (Right arrow)**: Accept current suggestion
+- **↑/↓**: Navigate command history
+- **Ctrl+R**: Search command history
+
+---
+
+## Enhanced Smart Command Generation
+
+iTerminal now includes advanced AI-powered features to handle unclear or incorrect prompts:
+
+### Automatic Typo Correction
+- Detects and corrects common typos in natural language
+- Examples: "upadte systm" → "update system" → `sudo apt update && sudo apt upgrade`
+
+### Multiple Interpretation Attempts
+- When a prompt is unclear, generates 3-4 possible command interpretations
+- Provides confidence scores for each interpretation
+- Allows users to choose the most appropriate command
+
+### Context-Based Suggestions
+- Analyzes keywords in unclear prompts to suggest relevant commands
+- Provides alternative commands based on common Linux tasks
+- Groups suggestions by category (file operations, system management, etc.)
+
+### Interactive Prompt Fixing
+- Use the `fix` command to get help with unclear prompts
+- Interactive selection of alternative commands
+- Step-by-step guidance for complex requests
+
+### Examples of Smart Handling
+
+| Unclear Input | Smart Interpretation | Generated Command |
+|---------------|---------------------|-------------------|
+| "upadte systm" | Typo correction | `sudo apt update && sudo apt upgrade` |
+| "show me stuff" | Context analysis | `ls -la` |
+| "fix computer" | Multiple options | `sudo systemctl status` + alternatives |
+| "do the thing" | Best guess | `ls -la` (most common action) |
+| "kill process" | Context-based | `ps aux \| grep process` |
+
+---
+
 ## Why iTerminal?
 
 New Linux users often struggle with remembering commands, understanding errors, and safely performing tasks. iTerminal acts as a smart assistant that:
 
 - Translates natural language to working Linux commands  
+- **NEW**: Handles unclear or wrong prompts intelligently
 - Helps correct mistakes interactively  
 - Explains commands in simple terms  
 - Builds confidence and Linux skills in a safe environment
@@ -58,14 +139,15 @@ iterminal.py           # Entry point
 iterminal/
   __init__.py
   cli.py               # CLI entry point
-  core.py              # Main REPL logic
-  ai.py                # AI helpers (OpenRouter)
+  core.py              # Main REPL logic (enhanced)
+  ai.py                # AI helpers (enhanced with smart generation)
   shell.py             # Shell helpers
   logger.py            # Logging
   config.py            # Config and .env
   dataset.py           # Command/intent memory
   suggest.py           # Advanced user input/completion
   stats.py             # Usage statistics
+test_smart_commands.py # Test script for new functionality
 requirements.txt
 README.md
 .env                   # (auto-created, holds your API key, gitignored)
@@ -93,6 +175,7 @@ README.md
 ## Usage
 - Type a Linux command (e.g., `ls -l`) to run it.
 - Type a natural language prompt (e.g., `update my system`) to get an AI-suggested command.
+- **NEW**: Type unclear prompts (e.g., `upadte systm`, `show me stuff`) and get smart interpretations.
 - If you mistype a command, iTerminal will auto-recommend a fix.
 - For AI-suggested commands, confirm before running: `[Y/n/edit]`.
 - Every command is explained in plain English.
@@ -109,7 +192,50 @@ README.md
 ## Special Commands
 - `help` - Show help information
 - `history` - Display command history and usage statistics
+- `fix` - **NEW**: Fix unclear or wrong prompts interactively
 - `exit` - Exit iTerminal
+
+---
+
+## Testing the New Features
+
+### Test Smart Command Generation
+Run the test script to see the smart command generation in action:
+
+```bash
+python test_smart_commands.py
+```
+
+This will demonstrate:
+- Typo correction
+- Multiple interpretation attempts
+- Context-based suggestions
+- Ambiguous prompt handling
+
+### Test Real-time Command Suggestions
+Run the suggestions test script to see the new real-time suggestion system:
+
+```bash
+python test_suggestions.py
+```
+
+This will demonstrate:
+- Real-time command suggestions as you type
+- Fuzzy matching for typos and partial input
+- Dataset-based suggestions from learned commands
+- Usage-based suggestions from command history
+- AI fallback suggestions
+- Tab completion and right-arrow acceptance
+
+### Interactive Testing
+1. Start iTerminal: `python iterminal.py`
+2. Try typing partial commands and watch suggestions appear:
+   - Type "upda" and see "sudo apt update && sudo apt upgrade" suggested
+   - Type "show" and see "ps aux" suggested
+   - Type "find" and see "find . -name '*.py'" suggested
+3. Use Tab to cycle through suggestions
+4. Use → (right arrow) to accept suggestions
+5. Try natural language: "update system", "show processes", etc.
 
 ---
 
@@ -143,10 +269,23 @@ This is due to circular imports between `suggest.py` and `stats.py`. To fix, rem
 ## Example
 ```
 iTerminal > upadte
-Error: /bin/sh: 1: upadte: not found
-Did you mean: sudo apt update?
-[Explanation] This command updates the package list on a Debian-based system.
-Run? [Y/n/edit]: Y
+I'm not sure what you mean by 'upadte'. Let me try to help...
+I think you meant: Corrected 'upadte' to 'update'
+┌─ AI Suggestion ──────────────────────────────────────┐
+│ sudo apt update && sudo apt upgrade                  │
+└──────────────────────────────────────────────────────┘
+This command updates the package list and upgrades installed packages on a Debian-based system.
+
+Alternative interpretations:
+  1. sudo apt update
+  2. sudo apt upgrade
+
+Related commands you might want:
+  1. sudo apt update
+  2. sudo apt upgrade
+  3. sudo apt update && sudo apt upgrade
+
+Run the suggested command? [Y/n/edit/alternatives/suggestions/help]: Y
 ...
 ```
 
@@ -185,6 +324,8 @@ For questions or support, please reach out to [your email or contact info].
 - Runs valid Linux shell commands and shows real output
 - Translates natural language to shell commands using AI (OpenRouter, free)
 - Detects and corrects mistyped/invalid shell commands, auto-recommends fixes
+- **NEW**: Smart handling of unclear or wrong prompts with multiple interpretations
+- **NEW**: Automatic typo correction and context-based suggestions
 - Explains every command in plain English
 - **Command history navigation** (↑/↓ arrows, Ctrl+R search)
 - **File path completion** (Tab key for auto-completion)
