@@ -24,6 +24,7 @@ from rich.prompt import Prompt
 import os
 import re
 from difflib import get_close_matches
+import math
 
 # Try to import fuzzywuzzy for better fuzzy matching
 try:
@@ -201,8 +202,8 @@ class SmartAutoSuggest(AutoSuggest):
         for prompt, command, explanation in prompts:
             # Calculate similarity scores
             if FUZZY_AVAILABLE:
-                prompt_score = fuzz.partial_ratio(text.lower(), prompt.lower())
-                command_score = fuzz.partial_ratio(text.lower(), command.lower())
+                prompt_score = fuzz.token_set_ratio(text.lower(), prompt.lower())
+                command_score = fuzz.token_set_ratio(text.lower(), command.lower())
             else:
                 prompt_score = fuzz_partial_ratio(text.lower(), prompt.lower())
                 command_score = fuzz_partial_ratio(text.lower(), command.lower())
@@ -210,11 +211,11 @@ class SmartAutoSuggest(AutoSuggest):
             # Use the higher score
             score = max(prompt_score, command_score)
             
-            if score >= 30:  # Threshold for dataset suggestions
+            if score >= 45:  # Threshold for dataset suggestions
                 suggestions.append({
                     'command': command,
-                    'score': score,
-                    'source': 'dataset',
+                    'score': score * 1.1,  # Boost dataset suggestions
+                    'source': '📚 Dataset',
                     'explanation': explanation,
                     'prompt': prompt
                 })
@@ -222,7 +223,7 @@ class SmartAutoSuggest(AutoSuggest):
         return suggestions
     
     def _get_stats_suggestions(self, text: str) -> List[Dict[str, Any]]:
-        """Get suggestions from usage statistics"""
+        """Get suggestions from usage statistics with improved scoring"""
         suggestions = []
         
         if not hasattr(self.stats, 'usage') or not self.stats.usage:
@@ -230,47 +231,46 @@ class SmartAutoSuggest(AutoSuggest):
         
         # Get commands from stats that match the input
         for command, count in self.stats.usage.items():
-            if text.lower() in command.lower() or command.lower().startswith(text.lower()):
-                # Score based on usage frequency and match quality
-                usage_score = min(count * 10, 50)  # Cap at 50
-                if FUZZY_AVAILABLE:
-                    match_score = fuzz.partial_ratio(text.lower(), command.lower())
-                else:
-                    match_score = fuzz_partial_ratio(text.lower(), command.lower())
-                total_score = (usage_score + match_score) / 2
+            if FUZZY_AVAILABLE:
+                match_score = fuzz.token_set_ratio(text.lower(), command.lower())
+            else:
+                match_score = fuzz_partial_ratio(text.lower(), command.lower())
+
+            if match_score > 50:
+                # Score based on usage frequency (logarithmic) and match quality
+                usage_score = min(10 * math.log(1 + count), 40)  # Logarithmic score, capped at 40
+                
+                # Weighted average: 70% match score, 30% usage score
+                total_score = (0.7 * match_score) + (0.3 * usage_score)
                 
                 suggestions.append({
                     'command': command,
                     'score': total_score,
-                    'source': 'stats',
+                    'source': '🔥 Stats',
                     'usage_count': count
                 })
         
         return suggestions
     
     def _get_fuzzy_suggestions(self, text: str) -> List[Dict[str, Any]]:
-        """Get fuzzy matching suggestions from common commands"""
+        """Get suggestions from a predefined list of commands using fuzzy matching"""
         suggestions = []
         
-        # Common Linux commands for fuzzy matching
-        common_commands = [
-            'ls', 'cd', 'pwd', 'cat', 'echo', 'grep', 'find', 'chmod', 'chown',
-            'cp', 'mv', 'rm', 'mkdir', 'rmdir', 'touch', 'nano', 'vim', 'git',
-            'python', 'pip', 'sudo', 'apt', 'systemctl', 'ps', 'top', 'kill',
-            'update', 'upgrade', 'install', 'remove', 'search', 'status',
-            'start', 'stop', 'restart', 'enable', 'disable', 'reload'
-        ]
+        # Combine all commands from templates into one list
+        all_commands = [cmd for sublist in COMMAND_TEMPLATES.values() for cmd in sublist]
         
-        for cmd in common_commands:
+        # Fuzzy match against all command templates
+        for cmd in all_commands:
             if FUZZY_AVAILABLE:
-                score = fuzz.partial_ratio(text.lower(), cmd.lower())
+                score = fuzz.token_set_ratio(text.lower(), cmd.lower())
             else:
                 score = fuzz_partial_ratio(text.lower(), cmd.lower())
-            if score >= 40:
+            
+            if score >= 60:
                 suggestions.append({
                     'command': cmd,
-                    'score': score,
-                    'source': 'fuzzy'
+                    'score': score * 0.9,  # Slightly lower weight for fuzzy
+                    'source': '🔍 Fuzzy'
                 })
         
         return suggestions
@@ -297,17 +297,17 @@ class SmartAutoSuggest(AutoSuggest):
         }
         
         for pattern, commands in context_patterns.items():
-            if pattern in text_lower or (FUZZY_AVAILABLE and fuzz.partial_ratio(text_lower, pattern) > 60):
+            if pattern in text_lower or (FUZZY_AVAILABLE and fuzz.token_set_ratio(text_lower, pattern) > 70):
                 for cmd in commands:
                     if FUZZY_AVAILABLE:
-                        score = fuzz.partial_ratio(text_lower, cmd.lower())
+                        score = fuzz.token_set_ratio(text_lower, cmd.lower())
                     else:
                         score = fuzz_partial_ratio(text_lower, cmd.lower())
-                    if score >= 30:
+                    if score >= 40:
                         suggestions.append({
                             'command': cmd,
-                            'score': score,
-                            'source': 'context'
+                            'score': score * 0.95, #Slightly lower weight for context
+                            'source': '💡 Context'
                         })
         
         return suggestions
@@ -323,7 +323,7 @@ class SmartAutoSuggest(AutoSuggest):
                 suggestions.append({
                     'command': result['command'],
                     'score': 35,  # Lower score for AI suggestions
-                    'source': 'ai',
+                    'source': '🤖 AI',
                     'explanation': result.get('explanation', '')
                 })
             
@@ -333,7 +333,7 @@ class SmartAutoSuggest(AutoSuggest):
                 suggestions.append({
                     'command': suggestion,
                     'score': 30 - i * 5,  # Decreasing scores
-                    'source': 'ai_context'
+                    'source': '🤖 AI'
                 })
                 
         except Exception:
@@ -370,12 +370,11 @@ class CommandCompleter(Completer):
         for suggestion in suggestions:
             # Create display text with source indicator
             source_icons = {
-                'dataset': '📚',
-                'stats': '🔥',
-                'fuzzy': '🔍',
-                'context': '💡',
-                'ai': '🤖',
-                'ai_context': '🤖'
+                '📚 Dataset': '📚',
+                '🔥 Stats': '🔥',
+                '🔍 Fuzzy': '🔍',
+                '💡 Context': '💡',
+                '🤖 AI': '🤖'
             }
             
             icon = source_icons.get(suggestion['source'], '🔧')
@@ -390,11 +389,11 @@ class CommandCompleter(Completer):
                     show_explanation = True
             
             if show_explanation:
-                display_text = f"{icon} {command} ({suggestion['explanation'][:40]}...) [{score}]"
+                display_text = f"{icon} {command} ({suggestion['explanation'][:40]}...) [{int(score)}]"
             elif 'usage_count' in suggestion:
-                display_text = f"{icon} {command} (used {suggestion['usage_count']} times) [{score}]"
+                display_text = f"{icon} {command} (used {suggestion['usage_count']} times) [{int(score)}]"
             else:
-                display_text = f"{icon} {command} [{score}]"
+                display_text = f"{icon} {command} [{int(score)}]"
             
             yield Completion(
                 command,
