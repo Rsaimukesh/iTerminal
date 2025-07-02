@@ -386,26 +386,52 @@ def suggest_related_commands(cmd: str) -> str:
     return ask_ai(prompt, system_prompt)
 
 def analyze_command_safety(cmd: str) -> Dict[str, Any]:
-    """Analyze command safety and provide warnings"""
-    system_prompt = """You are a Linux security expert. Analyze the safety of a command.
-    Return a JSON object with:
-    - "safe": boolean (true/false)
-    - "risk_level": string ("low", "medium", "high", "critical")
-    - "warning": string (explanation of risks if any)
-    - "safer_alternative": string (suggested safer command if applicable)
-    - "requires_confirmation": boolean (whether user should confirm)"""
-    
-    prompt = f"Analyze the safety of this Linux command: {cmd}"
-    response = ask_ai(prompt, system_prompt)
-    
-    try:
-        # Try to parse JSON response
-        if response.startswith('{') and response.endswith('}'):
-            return json.loads(response)
-    except:
-        pass
-    
-    # Fallback analysis
+    """Analyze command safety and provide warnings, with input validation and sanitization"""
+    import re
+    # Only include valid regex patterns for shell metacharacters and dangerous patterns
+    blocked_patterns = [
+        r';', r'&&', r'\|', r'\$', r'`', r'\(', r'\)', r'\[', r'\]', r'\{', r'\}',
+        r'"', r"'", r'\>\s*/', r'<', r'>', r'\*', r'\?', r'!', r'\^', r'~',
+        r'\#', r'%', r'&', r'\=', r'@', r'\;', r',', r'\.'
+    ]
+    # Block empty or whitespace-only commands
+    if not cmd or not cmd.strip():
+        return {
+            "safe": False,
+            "risk_level": "low",
+            "warning": "Empty or whitespace-only command.",
+            "safer_alternative": "",
+            "requires_confirmation": False
+        }
+    # Block sudo commands
+    if cmd.strip().startswith('sudo'):
+        return {
+            "safe": False,
+            "risk_level": "high",
+            "warning": "sudo commands are not supported in iTerminal. Please run them in your system terminal.",
+            "safer_alternative": cmd.strip().replace('sudo ', '', 1),
+            "requires_confirmation": True
+        }
+    # Block suspicious characters and patterns
+    for pat in blocked_patterns:
+        if re.search(pat, cmd):
+            return {
+                "safe": False,
+                "risk_level": "high",
+                "warning": f"Command contains potentially dangerous or invalid pattern: {pat}",
+                "safer_alternative": "",
+                "requires_confirmation": True
+            }
+    # Block command injection attempts
+    if re.search(r'[;&|`]', cmd):
+        return {
+            "safe": False,
+            "risk_level": "critical",
+            "warning": "Command injection attempt detected.",
+            "safer_alternative": "",
+            "requires_confirmation": True
+        }
+    # Block dangerous commands
     cmd_lower = cmd.lower()
     if any(dangerous in cmd_lower for dangerous in ['rm -rf /', 'dd if=/dev/zero', 'mkfs', 'fdisk']):
         return {
@@ -423,14 +449,23 @@ def analyze_command_safety(cmd: str) -> Dict[str, Any]:
             "safer_alternative": "",
             "requires_confirmation": True
         }
-    else:
-        return {
-            "safe": True,
-            "risk_level": "low",
-            "warning": "",
-            "safer_alternative": "",
-            "requires_confirmation": False
-        }
+    # If passed validation, proceed with AI-based safety analysis
+    system_prompt = """You are a Linux security expert. Analyze the safety of a command.\nReturn a JSON object with:\n- \"safe\": boolean (true/false)\n- \"risk_level\": string (\"low\", \"medium\", \"high\", \"critical\")\n- \"warning\": string (explanation of risks if any)\n- \"safer_alternative\": string (suggested safer command if applicable)\n- \"requires_confirmation\": boolean (whether user should confirm)"""
+    prompt = f"Analyze the safety of this Linux command: {cmd}"
+    response = ask_ai(prompt, system_prompt)
+    try:
+        if response.startswith('{') and response.endswith('}'):
+            return json.loads(response)
+    except:
+        pass
+    # Fallback: safe
+    return {
+        "safe": True,
+        "risk_level": "low",
+        "warning": "",
+        "safer_alternative": "",
+        "requires_confirmation": False
+    }
 
 def get_command_complexity(cmd: str) -> str:
     """Determine command complexity level for better explanations"""
