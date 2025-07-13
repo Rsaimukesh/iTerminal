@@ -386,13 +386,12 @@ def suggest_related_commands(cmd: str) -> str:
     return ask_ai(prompt, system_prompt)
 
 def analyze_command_safety(cmd: str) -> Dict[str, Any]:
-    """Analyze command safety and provide warnings, with input validation and sanitization"""
+    """Analyze command safety and provide warnings, with input validation and sanitization. Suggest dry-run alternatives for dangerous commands."""
     import re
-    # Only include valid regex patterns for shell metacharacters and dangerous patterns
+    # Only block truly dangerous shell metacharacters and patterns
     blocked_patterns = [
         r';', r'&&', r'\|', r'\$', r'`', r'\(', r'\)', r'\[', r'\]', r'\{', r'\}',
-        r'"', r"'", r'\>\s*/', r'<', r'>', r'\*', r'\?', r'!', r'\^', r'~',
-        r'\#', r'%', r'&', r'\=', r'@', r'\;', r',', r'\.'
+        r'\>', r'<', r'\*', r'\?', r'!', r'\^', r'~', r'\#', r'%', r'&', r'\=', r'@', r'\;', r','
     ]
     # Block empty or whitespace-only commands
     if not cmd or not cmd.strip():
@@ -419,7 +418,7 @@ def analyze_command_safety(cmd: str) -> Dict[str, Any]:
                 "safe": False,
                 "risk_level": "high",
                 "warning": f"Command contains potentially dangerous or invalid pattern: {pat}",
-                "safer_alternative": "",
+                "safer_alternative": suggest_dry_run(cmd),
                 "requires_confirmation": True
             }
     # Block command injection attempts
@@ -428,7 +427,7 @@ def analyze_command_safety(cmd: str) -> Dict[str, Any]:
             "safe": False,
             "risk_level": "critical",
             "warning": "Command injection attempt detected.",
-            "safer_alternative": "",
+            "safer_alternative": suggest_dry_run(cmd),
             "requires_confirmation": True
         }
     # Block dangerous commands
@@ -438,7 +437,7 @@ def analyze_command_safety(cmd: str) -> Dict[str, Any]:
             "safe": False,
             "risk_level": "critical",
             "warning": "This command can cause permanent data loss",
-            "safer_alternative": "",
+            "safer_alternative": suggest_dry_run(cmd),
             "requires_confirmation": True
         }
     elif any(risky in cmd_lower for risky in ['rm -rf', 'chmod 777', 'chown root']):
@@ -446,7 +445,7 @@ def analyze_command_safety(cmd: str) -> Dict[str, Any]:
             "safe": False,
             "risk_level": "high",
             "warning": "This command can be dangerous if used incorrectly",
-            "safer_alternative": "",
+            "safer_alternative": suggest_dry_run(cmd),
             "requires_confirmation": True
         }
     # If passed validation, proceed with AI-based safety analysis
@@ -466,6 +465,23 @@ def analyze_command_safety(cmd: str) -> Dict[str, Any]:
         "safer_alternative": "",
         "requires_confirmation": False
     }
+
+def suggest_dry_run(cmd: str) -> str:
+    """Suggest a dry-run or safe alternative for dangerous commands if possible."""
+    cmd = cmd.strip()
+    if cmd.startswith('rm '):
+        return cmd.replace('rm ', 'rm -i ', 1) + '   # -i for interactive prompt before delete'
+    if cmd.startswith('cp '):
+        return cmd + ' -n   # -n for no-clobber (don\'t overwrite)'
+    if cmd.startswith('mv '):
+        return cmd + ' -i   # -i for interactive prompt before overwrite'
+    if cmd.startswith('git push'):
+        return 'git push --dry-run'
+    if cmd.startswith('git commit'):
+        return 'git commit --dry-run'
+    if cmd.startswith('rsync '):
+        return cmd + ' --dry-run'
+    return ''
 
 def get_command_complexity(cmd: str) -> str:
     """Determine command complexity level for better explanations"""
