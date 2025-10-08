@@ -1,5 +1,6 @@
 import subprocess
 import shlex
+import shutil
 
 # List of interactive commands that don't work well in subprocess
 INTERACTIVE_COMMANDS = {
@@ -43,6 +44,34 @@ def get_command_alternative(cmd: str) -> str:
     return COMMAND_ALTERNATIVES.get(first_word, '')
 
 def run_shell_command(cmd: str):
+    # Plugin mode: allow all commands except major kernel-modifying ones
+    from .config import PLUGIN_MODE
+    if PLUGIN_MODE:
+        cmd_lower = cmd.strip().lower()
+        # Block truly dangerous, kernel-affecting commands
+        dangerous = ['rm -rf /', 'dd if=/dev/zero', 'mkfs', 'fdisk', 'shutdown', 'reboot']
+        for pat in dangerous:
+            if pat in cmd_lower:
+                return -1, '', f"Command '{cmd}' is blocked in plugin mode: dangerous operation."
+        # Execute everything else
+        try:
+            process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            stdout, stderr = process.communicate()
+            return process.returncode, stdout, stderr
+        except Exception as e:
+            return -1, '', str(e)
+    # Detect 'sudo' when it's the first token and provide a clear message if not available
+    first_token = cmd.strip().split()[0].lower() if cmd.strip() else ''
+    if first_token == 'sudo' and shutil.which('sudo') is None:
+        # Provide actionable advice when sudo isn't available in the environment
+        error_msg = (
+            """It looks like 'sudo' is not available in this environment. """
+            """If you're running iTerminal inside a sandbox (Flatpak, container), use your host terminal to run """
+            """system-level commands like package updates.\n\n"""
+            """You can run the command without 'sudo' here (if appropriate) or run it on your host system."""
+        )
+        return 127, '', error_msg
+
     # Check if it's an interactive command
     if is_interactive_command(cmd):
         alternative = get_command_alternative(cmd)
@@ -66,6 +95,13 @@ def run_shell_command(cmd: str):
     try:
         process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         stdout, stderr = process.communicate()
+        # Fallback: if command not found and running in FlatpakSandbox, spawn on host
+        if process.returncode != 0 and 'command not found' in (stderr or '').lower():
+            if shutil.which('flatpak-spawn'):
+                host_cmd = f"flatpak-spawn --host {cmd}"
+                host_proc = subprocess.Popen(host_cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                out2, err2 = host_proc.communicate()
+                return host_proc.returncode, out2, err2
         return process.returncode, stdout, stderr
     except Exception as e:
-        return -1, '', str(e) 
+        return -1, '', str(e)

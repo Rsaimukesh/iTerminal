@@ -5,6 +5,7 @@ import time
 from typing import Optional, Dict, Any
 from rich.console import Console
 from .config import get_api_key
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 console = Console()
 
@@ -17,6 +18,9 @@ AI_MODELS = [
     "mistralai/mixtral-8x7b",       # Alternative free option
     "meta-llama/llama-3.1-8b-instruct"  # Local-friendly
 ]
+
+# Executor for parallel AI model requests
+_executor = ThreadPoolExecutor(max_workers=len(AI_MODELS))
 
 # Response cache for better performance
 _response_cache: Dict[str, Dict[str, Any]] = {}
@@ -113,41 +117,41 @@ def ask_openrouter(prompt: str, system: str = None, max_retries: int = 3) -> str
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
     
-    for attempt in range(max_retries):
-        for model in AI_MODELS:
-            data = {
-                "model": model,
-                "messages": messages,
-                "max_tokens": 512,  # Increased for better responses
-                "temperature": 0.1,  # Lower for more consistent results
-                "top_p": 0.9,
-                "frequency_penalty": 0.1,
-                "presence_penalty": 0.1
-            }
-            try:
-                resp = requests.post(url, headers=headers, json=data, timeout=15)
-                if resp.status_code == 200:
-                    result = resp.json()
-                    raw_response = result['choices'][0]['message']['content'].strip()
-                    cleaned_response = clean_ai_response(raw_response)
-                    
-                    # Cache successful response
-                    cache_response(cache_key, cleaned_response)
-                    return cleaned_response
-                elif resp.status_code == 429:  # Rate limit
-                    time.sleep(2 ** attempt)  # Exponential backoff
-                    continue
-                elif resp.status_code == 401:  # Auth error
-                    return "[AI error: Invalid API key. Please check your OpenRouter API key.]"
-                else:
-                    continue  # Try next model
-            except requests.exceptions.Timeout:
-                continue  # Try next model
-            except requests.exceptions.RequestException:
-                continue  # Try next model
-            except Exception as e:
-                continue  # Try next model
-    
+    # Parallelize model calls and return first successful completion
+    def _call_model(model_name: str):
+        payload = {
+            "model": model_name,
+            "messages": messages,
+            "max_tokens": 512,
+            "temperature": 0.1,
+            "top_p": 0.9,
+            "frequency_penalty": 0.1,
+            "presence_penalty": 0.1
+        }
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=15)
+            return model_name, resp
+        except Exception:
+            return model_name, None
+
+    futures = [_executor.submit(_call_model, m) for m in AI_MODELS]
+    for future in as_completed(futures):
+        model, resp = future.result()
+        if resp is None:
+            continue
+        if resp.status_code == 200:
+            result = resp.json()
+            raw_response = result['choices'][0]['message']['content'].strip()
+            cleaned = clean_ai_response(raw_response)
+            cache_response(cache_key, cleaned)
+            # Cancel remaining model calls
+            for f in futures:
+                if not f.done(): f.cancel()
+            return cleaned
+        elif resp.status_code == 401:
+            return "[AI error: Invalid API key. Please check your OpenRouter API key.]"
+        else:
+            continue
     return "[AI error: No available model or network error. Please check your API key or try again later.]"
 
 def ask_ai(prompt: str, system: str = None) -> str:

@@ -8,6 +8,9 @@ console = Console()
 
 ENV_PATH = '.env'
 
+# Plugin mode: if set, skip blocking of most commands (only block kernel modification cmds)
+PLUGIN_MODE = os.environ.get('ITERMINAL_PLUGIN_MODE', '0') == '1'
+
 
 def get_api_key():
     api_key = os.environ.get('OPENROUTER_API_KEY', None)

@@ -20,6 +20,11 @@ import time
 import json
 from datetime import datetime
 from typing import Dict, Any, Optional
+from concurrent.futures import ThreadPoolExecutor
+from .config import PLUGIN_MODE
+
+# Executor for offloading AI and network-bound calls to background threads
+executor = ThreadPoolExecutor(max_workers=4)
 
 console = Console()
 
@@ -364,7 +369,7 @@ def handle_unclear_prompt(user_input: str, dataset: Dataset, stats: UsageStats):
             console.print(Text(out, style="green"))
         if err:
             console.print(Text(err, style="red"))
-        log_entry(f"UNCLEAR_PROMPT: {user_input}\nSMART_CMD: {shell_cmd}\nOUT: {out}\nERR: {err}\nEXPLAIN: {explanation}")
+        log_entry(f"UNCLEAR_PROMT: {user_input}\nSMART_CMD: {shell_cmd}\nOUT: {out}\nERR: {err}\nEXPLAIN: {explanation}")
         
         # Auto-learn the successful command
         if ret == 0:
@@ -423,6 +428,16 @@ def handle_unclear_prompt(user_input: str, dataset: Dataset, stats: UsageStats):
     
     elif choice == "help":
         show_help()
+
+def show_why():  
+    """Explain key behaviors and design choices."""
+    text = (
+        "iTerminal is designed to combine AI assistance with real shell execution. "
+        "It runs commands in a sandboxed environment and uses fallbacks (like flatpak-spawn) "
+        "to execute host-level commands when needed. "
+        "Plugin mode bypasses AI prompts and safety checks, allowing seamless integration in other apps."
+    )
+    console.print(Panel(text, title="[Why iTerminal]", border_style="cyan"))
 
 def main_loop():
     """Enhanced main loop with better session management and error handling"""
@@ -489,10 +504,23 @@ def main_loop():
             unclear_input = Prompt.ask("Enter the unclear prompt to fix")
             handle_unclear_prompt(unclear_input, dataset, stats)
             continue
+        elif user_input.strip().lower() == 'why':
+            show_why()
+            continue
         
         # Flag tracks input type
         was_natural_prompt = False
 
+        # 1. Plugin mode shortcut: execute all commands (shell.run blocks only dangerous ones)
+        if PLUGIN_MODE and is_probably_shell_command(user_input):
+            session_manager.commands_executed += 1
+            ret, out, err = run_shell_command(user_input)
+            if out:
+                console.print(Text(out, style="green"))
+            if err:
+                console.print(Text(err, style="red"))
+            log_entry(f"PLUGIN_CMD: {user_input}\nOUT: {out}\nERR: {err}")
+            continue
         # 1. Try as shell command
         if is_probably_shell_command(user_input):
             session_manager.commands_executed += 1
@@ -525,6 +553,25 @@ def main_loop():
                 log_entry(f"CMD: {user_input}\nOUT: {out}")
             else:
                 session_manager.errors_encountered += 1
+                # Special-case: environment missing sudo (sandbox/container)
+                if err and "It looks like 'sudo' is not available in this environment" in err:
+                    console.print(f"[yellow]Warning:[/] {err}")
+                    # Automatically strip 'sudo' and re-run
+                    parts = user_input.strip().split()
+                    if parts and parts[0].lower() == 'sudo':
+                        stripped = ' '.join(parts[1:])
+                    else:
+                        stripped = user_input
+                    console.print(f"[cyan]Re-running without sudo:[/] {stripped}")
+                    stats.add(stripped)
+                    ret2, out2, err2 = run_shell_command(stripped)
+                    if out2:
+                        console.print(Text(out2, style="green"))
+                    if err2:
+                        console.print(Text(err2, style="red"))
+                    log_entry(f"AUTO_SUDO_STRIP: {user_input} -> {stripped}\nOUT: {out2}\nERR: {err2}")
+                    continue
+
                 # Error: ask AI for correction
                 correction = correct_shell_command(user_input, err)
                 explanation = explain_command(correction)
@@ -569,10 +616,12 @@ def main_loop():
                 console.print(Text(explanation, style="italic cyan"))
                 choice = Prompt.ask("Run this command?", choices=["Y", "n", "edit", "related"], default="Y")
             else:
-                # Use smart command generation for unclear prompts
-                smart_result = smart_command_generation(user_input)
+                # Use smart command generation and explanation in parallel for unclear prompts
+                smart_future = executor.submit(smart_command_generation, user_input)
+                smart_result = smart_future.result()
                 shell_cmd = smart_result['command']
-                explanation = explain_command(shell_cmd)
+                expl_future = executor.submit(explain_command, shell_cmd)
+                explanation = expl_future.result()
                 
                 # If the result seems unclear or generic, offer enhanced help
                 if (smart_result['method'] != 'translation' or 
@@ -614,4 +663,4 @@ def main_loop():
     
     # Save session data on exit
     session_manager.save_session()
-    console.print(f"[bold magenta]Session log saved. Goodbye!") 
+    console.print(f"[bold magenta]Session log saved. Goodbye!")

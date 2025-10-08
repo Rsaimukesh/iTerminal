@@ -4,4 +4,4 @@ requests
 python-dotenv
 prompt_toolkit
 fuzzywuzzy
-python-Levenshtein 
+python-Levenshtein
