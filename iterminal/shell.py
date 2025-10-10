@@ -44,6 +44,28 @@ def get_command_alternative(cmd: str) -> str:
     return COMMAND_ALTERNATIVES.get(first_word, '')
 
 def run_shell_command(cmd: str):
+    # Check for common commands with case issues (likely caps lock)
+    first_word = cmd.strip().split()[0] if cmd.strip() else ""
+    common_commands = [
+        "ls", "pwd", "cd", "cat", "grep", "echo", "find", "rm", "cp", "mv", "touch", "mkdir", "rmdir",
+        "apt", "apt-get", "yum", "dnf", "pacman", "curl", "wget", "sudo", "chmod", "chown", "ps", "top",
+        "git", "ssh", "scp", "ping", "ifconfig", "ip", "netstat", "tar", "zip", "unzip", "man", "nano", 
+        "vim", "less", "more", "head", "tail", "wc", "sort", "uniq", "awk", "sed", "cut", "diff", "xargs"
+    ]
+    
+    # Commands that are typically uppercase (don't convert these)
+    uppercase_commands = ["COPY", "MAIL", "TIME", "ECHO", "CC", "MC"]
+    
+    # Check for all caps (LS, PWD) but only for common commands that aren't meant to be uppercase
+    if first_word.isupper() and first_word.lower() in common_commands and first_word not in uppercase_commands:
+        # Convert command to lowercase and run it
+        cmd = first_word.lower() + cmd[len(first_word):]
+    
+    # Check for mixed case with first letter capitalized (Ls, Pwd)
+    elif (first_word[0].isupper() if first_word else False) and first_word.lower() in common_commands and first_word not in uppercase_commands:
+        # Convert command to lowercase and run it
+        cmd = first_word.lower() + cmd[len(first_word):]
+        
     # Plugin mode: allow all commands except major kernel-modifying ones
     from .config import PLUGIN_MODE
     if PLUGIN_MODE:

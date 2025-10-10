@@ -4,7 +4,7 @@ import hashlib
 import time
 from typing import Optional, Dict, Any
 from rich.console import Console
-from .config import get_api_key
+from .config import get_api_key, get_ai_provider, OLLAMA_BASE_URL, OLLAMA_MODEL
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 console = Console()
@@ -154,9 +154,103 @@ def ask_openrouter(prompt: str, system: str = None, max_retries: int = 3) -> str
             continue
     return "[AI error: No available model or network error. Please check your API key or try again later.]"
 
+def ask_ollama(prompt: str, system: str = None, max_retries: int = 3) -> str:
+    """Call Ollama API for local LLM inference"""
+    # Check cache first
+    cache_key = get_cache_key(prompt, system)
+    cached_response = get_cached_response(cache_key)
+    if cached_response:
+        return cached_response
+    
+    url = f"{OLLAMA_BASE_URL}/api/chat"
+    
+    # Prepare messages
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+    
+    # Prepare request payload
+    payload = {
+        "model": OLLAMA_MODEL,
+        "messages": messages,
+        "stream": False,
+        "options": {
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "num_ctx": 2048
+        }
+    }
+    
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(url, json=payload, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                raw_response = result.get('message', {}).get('content', '')
+                if not raw_response and 'response' in result:
+                    raw_response = result.get('response', '')  # Fallback for older Ollama versions
+                
+                cleaned = clean_ai_response(raw_response.strip())
+                cache_response(cache_key, cleaned)
+                return cleaned
+            else:
+                error = f"[Ollama error: Server returned status code {response.status_code}]"
+                if attempt < max_retries - 1:
+                    time.sleep(1)  # Simple retry delay
+        except requests.exceptions.Timeout:
+            error = "[Ollama error: Request timed out]"
+            if attempt < max_retries - 1:
+                time.sleep(1)
+        except Exception as e:
+            error = f"[Ollama error: {str(e)}]"
+            if attempt < max_retries - 1:
+                time.sleep(1)
+    
+    return error
+
+def is_ollama_available() -> bool:
+    """Check if Ollama is available by making a ping request"""
+    try:
+        import requests
+        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=2)
+        return response.status_code == 200
+    except:
+        return False
+
 def ask_ai(prompt: str, system: str = None) -> str:
-    """Main AI interface with enhanced error handling"""
-    return ask_openrouter(prompt, system)
+    """Main AI interface with provider selection and fallback"""
+    current_provider = get_ai_provider()
+    
+    # Try Ollama if it's the selected provider
+    if current_provider == 'ollama':
+        # First check if Ollama is available
+        if is_ollama_available():
+            result = ask_ollama(prompt, system)
+            # Check if we got an error response
+            if not result.startswith("[Ollama error:"):
+                return result
+            # If we got an error, fall back to OpenRouter
+        
+        # Ollama not available or returned an error, fall back to OpenRouter
+        api_key = get_api_key()
+        if not api_key or api_key == "ollama":
+            # No API key for OpenRouter, return error message
+            return "[AI ERROR: Ollama server not available and no OpenRouter API key is set]"
+        
+        # We have an API key, try OpenRouter
+        fallback_message = "[AI NOTICE: Ollama server not available. Using OpenRouter as fallback]"
+        openrouter_result = ask_openrouter(prompt, system)
+        
+        # Check if OpenRouter response is an error
+        if openrouter_result.startswith("[AI error:") or openrouter_result.startswith("[OpenRouter"):
+            return fallback_message + " " + openrouter_result
+        
+        # Return successful response
+        return openrouter_result
+    else:
+        # Use OpenRouter directly
+        return ask_openrouter(prompt, system)
 
 def explain_command(cmd: str) -> str:
     """Enhanced command explanation with more detailed output"""
@@ -180,7 +274,17 @@ def translate_nl_to_shell(nl: str) -> str:
     - If the input is unclear or ambiguous, make your best guess based on common Linux tasks
     - For typos or misspellings, correct them and provide the intended command"""
     prompt = f"Translate to Linux command: {nl}"
-    return ask_ai(prompt, system_prompt)
+    result = ask_ai(prompt, system_prompt)
+    
+    # Ensure error messages are properly formatted to be identifiable
+    if result.startswith('[AI error:') or result.startswith('[Ollama') or result.startswith('[OpenRouter'):
+        return result
+    
+    # For general greetings or conversational inputs, return clear message
+    if nl.lower().strip() in ['hi', 'hello', 'hey', 'greetings', 'howdy', 'how are you']:
+        return "[AI NOTICE: This is a conversational prompt, not a command request]"
+    
+    return result
 
 def generate_multiple_interpretations(nl: str) -> list:
     """Generate multiple possible interpretations of unclear natural language input"""
@@ -288,9 +392,17 @@ def smart_command_generation(nl: str) -> dict:
     # First, try normal translation
     normal_result = translate_nl_to_shell(nl)
     
+    # Check if this is a notice or error message from our handlers
+    if normal_result.startswith('[AI') or normal_result.startswith('[Ollama') or normal_result.startswith('[OpenRouter'):
+        return {
+            "command": normal_result,
+            "explanation": "This is a notification, not a command",
+            "alternatives": [],
+            "method": "notice"
+        }
+    
     # If it looks like an error or is too generic, try more sophisticated approaches
-    if (normal_result.startswith('[AI error') or 
-        normal_result in ['ls', 'pwd', 'whoami'] or 
+    if (normal_result in ['ls', 'pwd', 'whoami'] or 
         len(normal_result.strip()) < 3):
         
         # Try typo correction
@@ -366,6 +478,86 @@ def suggest_common_commands_for_context(nl: str) -> list:
 
 def correct_shell_command(cmd: str, error: str) -> str:
     """Enhanced command correction with better error analysis"""
+    import difflib
+    
+    # Handle capitalization issues for common commands
+    first_word = cmd.strip().split()[0] if cmd.strip() else ""
+    common_commands = [
+        "ls", "pwd", "cd", "cat", "grep", "echo", "find", "rm", "cp", "mv", "touch", "mkdir", "rmdir",
+        "apt", "apt-get", "yum", "dnf", "pacman", "curl", "wget", "sudo", "chmod", "chown", "ps", "top",
+        "git", "ssh", "scp", "ping", "ifconfig", "ip", "netstat", "tar", "zip", "unzip", "man", "nano", 
+        "vim", "less", "more", "head", "tail", "wc", "sort", "uniq", "awk", "sed", "cut", "diff", "xargs",
+        "clear", "history", "df", "du", "free", "kill", "which", "whoami", "date", "time", "make"
+    ]
+    
+    # Check for case issues (all caps or first letter capitalized)
+    if first_word.lower() in common_commands:
+        if first_word != first_word.lower():
+            # This is a capitalization issue, return the lowercase version
+            return first_word.lower() + cmd[len(first_word):]
+    
+    # Check for common non-existent commands using difflib
+    if "no such file or directory" in error.lower():
+        # First try to find close matches with common commands
+        closest_matches = difflib.get_close_matches(first_word.lower(), common_commands, n=1, cutoff=0.6)
+        
+        if closest_matches:
+            suggested = closest_matches[0] + cmd[len(first_word):]
+            explanation = f"'{cmd}' is not found. Did you mean '{suggested}'?"
+            
+            # Return the suggested command first, then the explanation
+            return f"{suggested} [AI: {explanation}]"
+        
+        # If no close match found, use AI to get a better explanation
+        current_provider = get_ai_provider()
+        system_prompt = """You are a Linux command fixer. Given a failed command, suggest what the user might have meant.
+        - If it's a non-existent command, clearly state it's not a standard Linux command
+        - If you can recognize what they might have meant, suggest the correct command
+        - Be specific about what command they might have wanted
+        - Keep your explanation short and focused"""
+        
+        prompt = f"Command '{cmd}' failed with error: 'command not found'. What's the most likely correction or alternative?"
+        result = ask_ai(prompt, system_prompt)
+        
+        # Try to extract commands from the AI response using various patterns
+        import re
+        
+        # Pattern 1: Look for quoted commands
+        command_match = re.search(r"'([a-z0-9][a-z0-9\-]+)'", result.lower())
+        if command_match:
+            suggested_command = command_match.group(1)
+            if suggested_command in common_commands:
+                # We found a valid command in the response
+                return f"{suggested_command} [AI: {result}]"
+        
+        # Pattern 2: Look for commands in code blocks
+        code_block_match = re.search(r"```(?:bash|sh)?\s*([a-z0-9][a-z0-9\-]+\s+[^\n]+)", result.lower())
+        if code_block_match:
+            code_command = code_block_match.group(1).strip()
+            first_word_code = code_command.split()[0]
+            if first_word_code in common_commands:
+                return f"{code_command} [AI: {result}]"
+        
+        # Pattern 3: Look for "use mv" or similar phrases or "the correct command is/for..."
+        use_command_match = re.search(r"(?:use|correct command (?:is|for))[\s'`]*([a-z0-9][a-z0-9\-]+)['`\s]", result.lower())
+        if use_command_match:
+            use_cmd = use_command_match.group(1)
+            if use_cmd in common_commands:
+                # Basic suggestion based on the original command
+                args = cmd.split()[1:] if len(cmd.split()) > 1 else []
+                suggested = f"{use_cmd} {' '.join(args)}".strip()
+                return f"{suggested} [AI: {result}]"
+                
+        # Special cases for common command mistakes
+        if cmd.lower().startswith('rn ') and len(cmd.split()) > 1:
+            # 'rn' is likely trying to rename a file, suggest 'mv' instead
+            file_args = cmd.split(' ', 1)[1]
+            return f"mv {file_args} [AI: {result}]"
+                
+        # If we can't extract a valid command, just return the AI explanation
+        return f"[AI: {result}]"
+    
+    # For other cases, use AI
     system_prompt = """You are a Linux command fixer. Given a failed command and its error, suggest the correct command.
     - Only output the corrected command, nothing else
     - Do NOT use markdown formatting, code blocks, or quotes

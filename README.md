@@ -20,7 +20,11 @@ iTerminal is a modern Linux terminal emulator designed to make the command-line 
   Accepts both traditional shell commands (e.g., `sudo apt update`) and natural language prompts (e.g., "update my system").
 
 - **AI-Powered Command Interpretation**  
-  Uses AI (like GPT-4 or OpenRouter) to translate plain language prompts into safe, executable Linux commands.
+  Uses AI (via OpenRouter or local Ollama) to translate plain language prompts into safe, executable Linux commands.
+
+- **Multiple AI Providers**
+  - **Ollama**: Local LLMs for privacy, offline usage, and no API costs (default)
+  - **OpenRouter**: Cloud-based LLMs (fallback option)
 
 - **Smart Error Handling & Command Generation**  
   Automatically detects unclear prompts and generates multiple command interpretations. Handles typos, ambiguous requests, and provides context-based suggestions.
@@ -248,7 +252,7 @@ New Linux users often struggle with remembering commands, understanding errors, 
 - Support for multiple package managers and Linux distributions  
 - Visual enhancements (graphs, dashboards for command outputs)  
 - Plugin architecture for custom extensions  
-- Offline AI support using local language models
+- Support for more local LLM frameworks beyond Ollama
 - Enhanced inline suggestion customization
 - Command aliases and shortcuts
 
@@ -286,12 +290,64 @@ README.md
    pip install -r requirements.txt
    ```
    (Make sure `prompt_toolkit` is included in `requirements.txt` for advanced input features.)
-3. **Run iTerminal:**
+3. **Set up your AI provider:**
+   - **Option 1: Ollama (local, default)** 
+     
+     Use our installation helper script (recommended):
+     ```bash
+     # Run the Ollama installation helper
+     sudo bash scripts/install_ollama.sh
+     ```
+     
+     Or install manually:
+     ```bash
+     # Install Ollama
+     curl -fsSL https://ollama.com/install.sh | sh
+     
+     # Pull a model
+     ollama pull llama3
+     
+     # Start the Ollama server
+     ollama serve
+     ```
+     
+     **⚠️ IMPORTANT:** iTerminal uses Ollama by default. If Ollama is not installed or not running, you'll see error messages when using iTerminal. To fix this, either install Ollama as shown above or switch to OpenRouter (see Option 2).
+     
+     # Reset to Ollama if you previously used OpenRouter
+     ./reset_to_ollama.sh
+     ```
+
+   - **Option 2: OpenRouter (fallback)**
+     ```bash
+     # Add your OpenRouter API key to .env (will be prompted on first run if Ollama is unavailable)
+     echo "OPENROUTER_API_KEY=your_api_key_here" > .env
+     ```
+     Get a free API key at [https://openrouter.ai/](https://openrouter.ai/)
+
+4. **Run iTerminal:**
    ```bash
+   # Run with default provider (Ollama)
+   python iterminal.py
+   
+   # Or explicitly set provider
+   export ITERMINAL_AI_PROVIDER=ollama  # or 'openrouter'
+   export OLLAMA_MODEL=llama3  # or your preferred model
    python iterminal.py
    ```
-   - On first run, you'll be prompted for your OpenRouter API key (get one free at [https://openrouter.ai/](https://openrouter.ai/)).
-   - The key is saved to `.env` (which is gitignored for safety).
+   
+   **Note:** If Ollama is unavailable, iTerminal will automatically fall back to OpenRouter (requires API key).
+
+## Environment Variables
+
+iTerminal supports the following environment variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ITERMINAL_AI_PROVIDER` | AI provider to use (`ollama` or `openrouter`) | `ollama` |
+| `OLLAMA_BASE_URL` | URL for Ollama server | `http://localhost:11434` |
+| `OLLAMA_MODEL` | Model to use with Ollama | `llama3` |
+| `OPENROUTER_API_KEY` | API key for OpenRouter | (required for fallback) |
+| `ITERMINAL_PLUGIN_MODE` | Run in plugin mode (0/1) | `0` |
 
 ---
 
@@ -315,7 +371,9 @@ README.md
 ## Special Commands
 - `help` - Show help information
 - `history` - Display command history and usage statistics
-- `fix` - **NEW**: Fix unclear or wrong prompts interactively
+- `fix` - Fix unclear or wrong prompts interactively
+- `provider` - Switch between AI providers (ollama/openrouter)
+- `ollama` - Configure Ollama settings (model, server URL)
 - `exit` - Exit iTerminal
 
 ---
@@ -383,9 +441,70 @@ This is due to circular imports between `suggest.py` and `stats.py`. To fix, rem
 
 ---
 
+## AI Provider Options
+
+iTerminal supports both local and cloud-based AI providers:
+
+### Ollama (Default)
+Uses locally running LLMs through Ollama:
+- Complete privacy (no data leaves your machine)
+- Works offline
+- No API costs
+- Lower latency (no internet round-trip)
+- Customizable models (Llama, Mistral, etc.)
+
+### OpenRouter (Fallback)
+Uses cloud-based LLMs through the OpenRouter API:
+- High quality responses via models like GPT-4, Claude, etc.
+- Requires internet connection
+- Requires API key
+- API usage costs apply
+
+### Using Ollama with iTerminal
+
+1. **Install Ollama**:
+   ```bash
+   # On Linux
+   curl -fsSL https://ollama.com/install.sh | sh
+   ```
+
+2. **Pull your preferred model**:
+   ```bash
+   ollama pull llama3
+   # or ollama pull mistral, ollama pull gemma, etc.
+   ```
+
+3. **Start Ollama server**:
+   ```bash
+   ollama serve
+   ```
+
+4. **Run iTerminal with Ollama**:
+   ```bash
+   export AI_PROVIDER=ollama
+   export OLLAMA_MODEL=llama3  # or your preferred model
+   python iterminal.py
+   ```
+
+5. **Or switch provider during runtime**:
+   ```
+   iTerminal > provider
+   Current AI provider: openrouter
+   Select AI provider [openrouter/ollama]: ollama
+   AI provider set to ollama!
+   ```
+
+6. **Configure Ollama settings**:
+   ```
+   iTerminal > ollama
+   ```
+
+7. **Automatic fallback**: If Ollama server isn't available, iTerminal automatically falls back to OpenRouter.
+
 ## Security
-- Your API key is stored in `.env` (never commit this file!).
+- Your OpenRouter API key is stored in `.env` (never commit this file!).
 - `.env` and log files are in `.gitignore` by default.
+- When using Ollama, no API key is required and all processing stays local.
 
 ---
 

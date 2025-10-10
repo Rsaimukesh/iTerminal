@@ -40,7 +40,9 @@ COMMAND_ALIASES = {
     'session': 'show session information',
     'export': 'export command history',
     'import': 'import commands from file',
-    'fix': 'fix unclear or wrong prompt'
+    'fix': 'fix unclear or wrong prompt',
+    'provider': 'set AI provider (ollama/openrouter)',
+    'ollama': 'configure Ollama settings'
 }
 
 class SessionManager:
@@ -152,9 +154,12 @@ def show_help():
 • [cyan]dataset[/cyan] - Show learned commands
 • [cyan]clear[/cyan] - Clear terminal
 • [cyan]fix[/cyan] - Fix unclear or wrong prompts
+• [cyan]provider[/cyan] - Set AI provider (ollama/openrouter)
+• [cyan]ollama[/cyan] - Configure Ollama settings
 • [cyan]exit[/cyan] - Exit iTerminal
 
 [bold]AI Features:[/bold]
+• Multiple AI providers (Ollama, OpenRouter)
 • Automatic command correction
 • Natural language translation
 • Command explanations
@@ -447,8 +452,21 @@ def main_loop():
     session_manager = SessionManager()
     
     # Welcome message with session info
+    from iterminal.config import get_ai_provider, get_ollama_status
+    current_provider = get_ai_provider()
     console.print("[bold green]Welcome to iTerminal! Type your command or ask in plain English. Type 'exit' or Ctrl-D to quit.[/bold green]")
-    console.print("[dim]Type 'help' for more information[/dim]")
+    
+    # More prominent AI provider information
+    provider_color = "green" if current_provider == "ollama" else "cyan"
+    console.print(f"Type 'help' for more information | AI Provider: [bold {provider_color}]{current_provider.upper()}[/bold {provider_color}]")
+    
+    # If using Ollama, show status
+    if current_provider == 'ollama':
+        status, message = get_ollama_status()
+        if status:
+            console.print(f"[dim green]✓ {message}[/dim green]")
+        else:
+            console.print(f"[dim yellow]⚠ {message} (Falling back to OpenRouter)[/dim yellow]")
     
     # Show session info if returning user
     if session_manager.commands_executed > 0:
@@ -503,6 +521,35 @@ def main_loop():
         elif user_input.strip().lower() == 'fix':
             unclear_input = Prompt.ask("Enter the unclear prompt to fix")
             handle_unclear_prompt(unclear_input, dataset, stats)
+            continue
+        elif user_input.strip().lower() == 'provider':
+            from iterminal.config import set_ai_provider, get_ollama_status, get_ai_provider
+            current_provider = get_ai_provider()
+            console.print(f"[bold]Current AI provider:[/bold] [green]{current_provider}[/green]")
+            
+            if current_provider == 'ollama':
+                status, message = get_ollama_status()
+                console.print(f"[dim]Ollama status: {message}[/dim]")
+            
+            new_provider = Prompt.ask(
+                "Select AI provider", 
+                choices=["ollama", "openrouter"], 
+                default=current_provider
+            )
+            
+            if set_ai_provider(new_provider):
+                console.print(f"[green]AI provider set to {new_provider}![/green]")
+                # Show message about Ollama configuration if switching to it
+                if new_provider == 'ollama':
+                    console.print("[yellow]You can configure Ollama settings by typing 'ollama'[/yellow]")
+                # Force reload from global
+                from iterminal.config import get_ai_provider
+                updated_provider = get_ai_provider()
+                console.print(f"[dim]Provider set to: {updated_provider}[/dim]")
+            continue
+        elif user_input.strip().lower() == 'ollama':
+            from iterminal.config import configure_ollama
+            configure_ollama()
             continue
         elif user_input.strip().lower() == 'why':
             show_why()
@@ -576,18 +623,40 @@ def main_loop():
                 correction = correct_shell_command(user_input, err)
                 explanation = explain_command(correction)
                 console.print(f"[red]Error:[/red] {err.strip()}")
+                
                 if correction and not correction.startswith('[AI error'):
-                    console.print(f"[yellow]Did you mean:[/yellow] [bold]{correction}[/bold]?")
-                    console.print(Text(explanation, style="cyan"))
+                    # Extract command and AI explanation if provided in new format: "command [AI: explanation]"
+                    actual_command = correction
+                    ai_explanation = None
+                    
+                    if " [AI:" in correction and correction.endswith("]"):
+                        parts = correction.split(" [AI:", 1)
+                        actual_command = parts[0].strip()
+                        ai_explanation = parts[1].rstrip("]").strip()
+                    
+                    # Get current AI provider for display
+                    from .config import get_ai_provider
+                    current_provider = get_ai_provider().upper()
+                    
+                    if ai_explanation:
+                        # Show both the command and the AI's explanation
+                        console.print(f"[yellow]Did you mean:[/yellow] [bold]{actual_command}[/bold]? [dim]({current_provider} AI)[/dim]")
+                        console.print(f"[cyan]{ai_explanation}[/cyan]")
+                    else:
+                        # Show the command and the standard explanation
+                        console.print(f"[yellow]Did you mean:[/yellow] [bold]{correction}[/bold]? [dim]({current_provider} AI)[/dim]")
+                        console.print(Text(explanation, style="cyan"))
+                    
                     choice = Prompt.ask("Run?", choices=["Y", "n", "edit", "related"], default="Y")
                     if choice == "Y":
-                        stats.add(correction)
-                        ret2, out2, err2 = run_shell_command(correction)
+                        # Always use the actual_command, not the full explanation
+                        stats.add(actual_command)
+                        ret2, out2, err2 = run_shell_command(actual_command)
                         if out2:
                             console.print(Text(out2, style="green"))
                         if err2:
                             console.print(Text(err2, style="red"))
-                        log_entry(f"FIXED_CMD: {correction}\nOUT: {out2}\nERR: {err2}\nEXPLAIN: {explanation}")
+                        log_entry(f"FIXED_CMD: {actual_command}\nOUT: {out2}\nERR: {err2}\nEXPLAIN: {ai_explanation or explanation}")
                     elif choice == "edit":
                         edited = Prompt.ask("Edit command", default=correction)
                         stats.add(edited)
@@ -620,13 +689,30 @@ def main_loop():
                 smart_future = executor.submit(smart_command_generation, user_input)
                 smart_result = smart_future.result()
                 shell_cmd = smart_result['command']
+                
+                # Check for error messages from the AI - more comprehensive check
+                if (shell_cmd.startswith('[Ollama') or 
+                    shell_cmd.startswith('[AI') or
+                    'ERROR' in shell_cmd.upper() or
+                    shell_cmd.startswith('[OpenRouter')):
+                    console.print(f"[yellow]AI Error:[/yellow] {shell_cmd}")
+                    
+                    # Provide more specific guidance based on the error message
+                    if "Ollama server not available" in shell_cmd:
+                        console.print("[yellow]Ollama is not installed or not running on this system.[/yellow]")
+                        console.print("[cyan]You can install Ollama by running: sudo bash scripts/install_ollama.sh[/cyan]")
+                        console.print("[cyan]Or switch to OpenRouter by typing: provider openrouter[/cyan]")
+                    else:
+                        console.print("[yellow]Please check if Ollama is running or if your OpenRouter API key is set.[/yellow]")
+                        console.print("[dim]Hint: Type 'provider' to switch AI providers or 'ollama' to configure Ollama.[/dim]")
+                    continue
+                
                 expl_future = executor.submit(explain_command, shell_cmd)
                 explanation = expl_future.result()
                 
                 # If the result seems unclear or generic, offer enhanced help
                 if (smart_result['method'] != 'translation' or 
-                    shell_cmd in ['ls', 'pwd', 'whoami'] or 
-                    shell_cmd.startswith('[AI error')):
+                    shell_cmd in ['ls', 'pwd', 'whoami']):
                     handle_unclear_prompt(user_input, dataset, stats)
                     continue
                 
