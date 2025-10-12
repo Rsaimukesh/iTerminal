@@ -2,28 +2,62 @@ import requests
 import json
 import hashlib
 import time
-from typing import Optional, Dict, Any
+import os
+import threading
+import multiprocessing
+from typing import Optional, Dict, Any, List, Tuple, Callable
 from rich.console import Console
 from .config import get_api_key, get_ai_provider, OLLAMA_BASE_URL, OLLAMA_MODEL
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 
 console = Console()
 
+# Determine optimal thread and process counts for AI operations
+CPU_COUNT = multiprocessing.cpu_count()
+OPTIMAL_THREADS = min(32, CPU_COUNT * 4)  # Hyperthreading: 4 threads per CPU core
+OPTIMAL_PROCESSES = max(2, CPU_COUNT - 1)  # Leave one CPU core for the main thread
+
+# Hyperthread settings from environment
+HYPERTHREAD_ENABLED = os.environ.get('ITERMINAL_HYPERTHREAD_ENABLED', 'true').lower() == 'true'
+PARALLEL_REQUESTS = int(os.environ.get('ITERMINAL_PARALLEL_REQUESTS', min(8, OPTIMAL_THREADS // 2)))
+REQUEST_TIMEOUT = int(os.environ.get('ITERMINAL_REQUEST_TIMEOUT', 60))
+MAX_CONCURRENT_TASKS = int(os.environ.get('ITERMINAL_MAX_CONCURRENT_TASKS', OPTIMAL_THREADS))
+HYPERTHREAD_ENABLED = os.environ.get('ITERMINAL_HYPERTHREAD', '1') == '1'
+THREAD_COUNT = int(os.environ.get('ITERMINAL_THREAD_COUNT', str(OPTIMAL_THREADS)))
+PARALLEL_REQUESTS = int(os.environ.get('ITERMINAL_PARALLEL_REQUESTS', '4'))
+
+# Performance settings
+CACHE_ENABLED = os.environ.get('ITERMINAL_CACHE_ENABLED', '1') == '1'
+PERFORMANCE_MODE = os.environ.get('ITERMINAL_PERFORMANCE_MODE', '1') == '1'
+REDUCED_CONTEXT = os.environ.get('ITERMINAL_REDUCED_CONTEXT', '1') == '1'
+CACHE_DURATION = int(os.environ.get('ITERMINAL_CACHE_DURATION', '7200'))
+PERFORMANCE_MODE = os.environ.get('ITERMINAL_PERFORMANCE_MODE', '1') == '1'
+REDUCED_CONTEXT = os.environ.get('ITERMINAL_REDUCED_CONTEXT', '1') == '1'
+
 # Enhanced model list with better fallbacks and reliability
 AI_MODELS = [
-    "anthropic/claude-3.5-sonnet",  # Most reliable
-    "openai/gpt-4o-mini",           # Good balance
-    "openai/gpt-3.5-turbo",         # Fast and reliable
-    "openchat/openchat-3.5-0106",   # Free option
-    "mistralai/mixtral-8x7b",       # Alternative free option
-    "meta-llama/llama-3.1-8b-instruct"  # Local-friendly
+    "openai/gpt-3.5-turbo",         # Most reliable and affordable
+    "anthropic/claude-instant-v1",  # Good backup
+    "google/palm-2-chat-bison",     # Another good option
+    "meta-llama/llama-2-13b-chat",  # Free option
+    "openai/gpt-4-turbo",           # Premium option (used only if others fail)
+    "anthropic/claude-2.0"          # Another premium backup
 ]
 
-# Executor for parallel AI model requests
-_executor = ThreadPoolExecutor(max_workers=len(AI_MODELS))
+# Thread synchronization locks
+_request_lock = threading.RLock()  # Reentrant lock for API requests
+_cache_lock = threading.RLock()    # Reentrant lock for cache access
 
-# Response cache for better performance
+# Enhanced executors for parallel AI model requests
+_thread_executor = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_TASKS)
+_process_executor = ProcessPoolExecutor(max_workers=OPTIMAL_PROCESSES)
+
+# Thread-safe response cache with read-write optimizations
 _response_cache: Dict[str, Dict[str, Any]] = {}
+
+# LRU cache implementation for faster access
+_lru_list: List[str] = []  # Tracks recently used keys for fast eviction
+_cache_stats = {"hits": 0, "misses": 0, "evictions": 0}
 
 def get_cache_key(prompt: str, system: str = None) -> str:
     """Generate cache key for prompt and system message"""
@@ -31,22 +65,80 @@ def get_cache_key(prompt: str, system: str = None) -> str:
     return hashlib.md5(content.encode()).hexdigest()
 
 def get_cached_response(cache_key: str) -> Optional[str]:
-    """Get cached response if it exists and is not expired"""
-    if cache_key in _response_cache:
-        cached = _response_cache[cache_key]
-        # Cache expires after 1 hour
-        if time.time() - cached['timestamp'] < 3600:
-            return cached['response']
-        else:
-            del _response_cache[cache_key]
-    return None
+    """Get cached response if it exists and is not expired (thread-safe)"""
+    if not CACHE_ENABLED:
+        return None
+    
+    with _cache_lock:
+        if cache_key in _response_cache:
+            cached = _response_cache[cache_key]
+            # Cache expires after configured duration
+            if time.time() - cached['timestamp'] < CACHE_DURATION:
+                # Update LRU status (move to end = most recently used)
+                if cache_key in _lru_list:
+                    _lru_list.remove(cache_key)
+                _lru_list.append(cache_key)
+                
+                # Log cache hit for debugging
+                _cache_stats["hits"] += 1
+                if os.environ.get('ITERMINAL_DEBUG', '0') == '1':
+                    print(f"Cache hit for {cache_key[:6]}... ({_cache_stats['hits']} hits, {_cache_stats['misses']} misses)")
+                return cached['response']
+            else:
+                # Expired entry
+                del _response_cache[cache_key]
+                if cache_key in _lru_list:
+                    _lru_list.remove(cache_key)
+        
+        _cache_stats["misses"] += 1
+        return None
 
 def cache_response(cache_key: str, response: str):
-    """Cache a response with timestamp"""
-    _response_cache[cache_key] = {
-        'response': response,
-        'timestamp': time.time()
-    }
+    """Cache a response with timestamp (thread-safe)"""
+    if not CACHE_ENABLED:
+        return
+    
+    with _cache_lock:
+        # Limit cache size to prevent memory issues
+        max_cache_size = int(os.environ.get('ITERMINAL_MAX_CACHE_SIZE', '1000'))
+        
+        if len(_response_cache) >= max_cache_size:
+            # Efficient LRU eviction - remove 20% of least recently used items
+            evict_count = max(1, max_cache_size // 5)
+            keys_to_remove = _lru_list[:evict_count]
+            
+            for k in keys_to_remove:
+                if k in _response_cache:
+                    del _response_cache[k]
+            
+            _lru_list[:] = _lru_list[evict_count:]  # Efficient list slicing
+            _cache_stats["evictions"] += evict_count
+        
+        # Add to cache and LRU list
+        _response_cache[cache_key] = {
+            'response': response,
+            'timestamp': time.time()
+        }
+        _lru_list.append(cache_key)
+        
+        # Log cache stats in debug mode
+        if os.environ.get('ITERMINAL_DEBUG', '0') == '1' and len(_response_cache) % 10 == 0:
+            print(f"Cache size: {len(_response_cache)}, hits: {_cache_stats['hits']}, " 
+                  f"misses: {_cache_stats['misses']}, evictions: {_cache_stats['evictions']}")
+
+# Worker function for parallel Ollama requests
+def _make_ollama_request(url, payload, timeout=60):
+    """
+    Make an API request to Ollama.
+    Returns a tuple of (status_code, response_json) or (status_code, error_message).
+    """
+    try:
+        response = requests.post(url, json=payload, timeout=timeout)
+        if response.status_code == 200:
+            return response.status_code, response.json()
+        return response.status_code, f"Error: Status code {response.status_code}"
+    except Exception as e:
+        return 500, f"Error: {str(e)}"
 
 def clean_ai_response(response: str) -> str:
     """Enhanced cleaning of AI response by removing markdown formatting and extra text"""
@@ -99,21 +191,29 @@ def ask_openrouter(prompt: str, system: str = None, max_retries: int = 3) -> str
     if not api_key:
         return "[OpenRouter API key not set. Set OPENROUTER_API_KEY env variable. See README.]"
     
-    # Check cache first
+    # Check cache first if enabled
     cache_key = get_cache_key(prompt, system)
-    cached_response = get_cached_response(cache_key)
-    if cached_response:
-        return cached_response
+    if CACHE_ENABLED:
+        cached_response = get_cached_response(cache_key)
+        if cached_response:
+            return cached_response
     
+    # Trim prompt if performance mode is enabled
+    if PERFORMANCE_MODE and len(prompt) > 500:
+        prompt = prompt[:500]
+        
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/yourgithub/iterminal",
+        "HTTP-Referer": "https://github.com/Rsaimukesh/iTerminal",
         "X-Title": "iTerminal"
     }
     messages = []
     if system:
+        # Simplify system prompt in performance mode
+        if PERFORMANCE_MODE and len(system) > 300:
+            system = system[:300]
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
     
@@ -129,12 +229,12 @@ def ask_openrouter(prompt: str, system: str = None, max_retries: int = 3) -> str
             "presence_penalty": 0.1
         }
         try:
-            resp = requests.post(url, headers=headers, json=payload, timeout=15)
+            resp = requests.post(url, headers=headers, json=payload, timeout=30)
             return model_name, resp
         except Exception:
             return model_name, None
 
-    futures = [_executor.submit(_call_model, m) for m in AI_MODELS]
+    futures = [_thread_executor.submit(_call_model, m) for m in AI_MODELS]
     for future in as_completed(futures):
         model, resp = future.result()
         if resp is None:
@@ -154,37 +254,89 @@ def ask_openrouter(prompt: str, system: str = None, max_retries: int = 3) -> str
             continue
     return "[AI error: No available model or network error. Please check your API key or try again later.]"
 
+def _make_ollama_request(url: str, payload: Dict, timeout: int = 60) -> Tuple[int, Dict]:
+    """Make a single request to Ollama API (worker function for threading)"""
+    try:
+        with _request_lock:  # Prevent too many concurrent requests to Ollama
+            response = requests.post(url, json=payload, timeout=timeout)
+        return response.status_code, response.json() if response.status_code == 200 else {}
+    except Exception as e:
+        return 500, {"error": str(e)}
+
 def ask_ollama(prompt: str, system: str = None, max_retries: int = 3) -> str:
-    """Call Ollama API for local LLM inference"""
-    # Check cache first
-    cache_key = get_cache_key(prompt, system)
-    cached_response = get_cached_response(cache_key)
-    if cached_response:
-        return cached_response
+    """Call Ollama API for local LLM inference with hyperthreaded optimization"""
+    # Check cache first if enabled
+    if CACHE_ENABLED:
+        cache_key = get_cache_key(prompt, system)
+        cached_response = get_cached_response(cache_key)
+        if cached_response:
+            return cached_response
+    
+    # Trim prompt if performance mode is enabled
+    if PERFORMANCE_MODE and len(prompt) > 500:
+        prompt = prompt[:500]
     
     url = f"{OLLAMA_BASE_URL}/api/chat"
     
     # Prepare messages
     messages = []
     if system:
+        # Simplify system prompt in performance mode
+        if PERFORMANCE_MODE and len(system) > 300:
+            system = system[:300]
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
     
-    # Prepare request payload
+    # Prepare request payload with optimized settings
+    ctx_size = 1024 if REDUCED_CONTEXT else 2048  # Reduce context for better performance
     payload = {
         "model": OLLAMA_MODEL,
         "messages": messages,
         "stream": False,
         "options": {
-            "temperature": 0.2,
-            "top_p": 0.9,
-            "num_ctx": 2048
+            "temperature": 0.1,  # Lower temperature for faster, more deterministic responses
+            "top_p": 0.8,        # Lower top_p for faster sampling
+            "num_ctx": ctx_size,
+            "num_gpu": 1,        # Ensure GPU is used if available
+            "seed": 42,          # Fixed seed for consistent responses
+            "num_thread": MAX_CONCURRENT_TASKS  # Use optimal thread count for Ollama processing
         }
     }
     
+    # Use hyperthreading for request handling if enabled
+    if HYPERTHREAD_ENABLED:
+        cache_key = get_cache_key(prompt, system)
+        
+        # Create multiple request futures with different seeds for diversity
+        futures = []
+        for i in range(min(max_retries, PARALLEL_REQUESTS)):
+            # Slightly vary the payload for each parallel request
+            payload_copy = payload.copy()
+            payload_copy["options"] = payload["options"].copy()
+            payload_copy["options"]["seed"] = 42 + i  # Different seed for each request
+            
+            # Submit the request to thread pool
+            futures.append(_thread_executor.submit(
+                _make_ollama_request, url, payload_copy, 30 + i*10))
+        
+        # Process results as they complete
+        for future in as_completed(futures):
+            status_code, result = future.result()
+            if status_code == 200:
+                raw_response = result.get('message', {}).get('content', '')
+                if not raw_response and 'response' in result:
+                    raw_response = result.get('response', '')  # Fallback for older Ollama versions
+                
+                cleaned = clean_ai_response(raw_response.strip())
+                cache_response(cache_key, cleaned)
+                return cleaned
+        
+        # If all parallel requests failed, try sequential approach as fallback
+    
+    # Sequential approach (traditional or fallback)
     for attempt in range(max_retries):
         try:
-            response = requests.post(url, json=payload, timeout=30)
+            response = requests.post(url, json=payload, timeout=60)
             if response.status_code == 200:
                 result = response.json()
                 raw_response = result.get('message', {}).get('content', '')
@@ -192,7 +344,9 @@ def ask_ollama(prompt: str, system: str = None, max_retries: int = 3) -> str:
                     raw_response = result.get('response', '')  # Fallback for older Ollama versions
                 
                 cleaned = clean_ai_response(raw_response.strip())
-                cache_response(cache_key, cleaned)
+                if CACHE_ENABLED:
+                    cache_key = get_cache_key(prompt, system)
+                    cache_response(cache_key, cleaned)
                 return cleaned
             else:
                 error = f"[Ollama error: Server returned status code {response.status_code}]"
@@ -484,7 +638,7 @@ def correct_shell_command(cmd: str, error: str) -> str:
     first_word = cmd.strip().split()[0] if cmd.strip() else ""
     common_commands = [
         "ls", "pwd", "cd", "cat", "grep", "echo", "find", "rm", "cp", "mv", "touch", "mkdir", "rmdir",
-        "apt", "apt-get", "yum", "dnf", "pacman", "curl", "wget", "sudo", "chmod", "chown", "ps", "top",
+        "apt", "apt-get", "yum", "dnf", "pacman", "curl", "wget", "sudo", "ssudo", "chmod", "chown", "ps", "top",
         "git", "ssh", "scp", "ping", "ifconfig", "ip", "netstat", "tar", "zip", "unzip", "man", "nano", 
         "vim", "less", "more", "head", "tail", "wc", "sort", "uniq", "awk", "sed", "cut", "diff", "xargs",
         "clear", "history", "df", "du", "free", "kill", "which", "whoami", "date", "time", "make"
@@ -565,8 +719,19 @@ def correct_shell_command(cmd: str, error: str) -> str:
     - Fix typos, missing packages, wrong syntax
     - Use common Linux commands and package managers
     - If the error suggests a missing package, suggest the install command
-    - If the error suggests permission issues, suggest the correct sudo usage
+    - If the error suggests permission issues, suggest the correct sudo usage UNLESS the original command already used 'ssudo'
+    - If the command already uses 'ssudo', DO NOT suggest replacing it with 'sudo'
+    - If the command uses 'ssudo' but the command doesn't exist, suggest a non-privileged alternative
     - If the error suggests a file not found, suggest common alternatives"""
+    
+    # Special handling for ssudo command to avoid suggesting sudo when ssudo is already used
+    if first_word.lower() == "ssudo":
+        system_prompt += """
+    - This command is using 'ssudo' which is a special version of sudo for this environment
+    - DO NOT suggest replacing 'ssudo' with 'sudo' as this will cause a loop
+    - Instead, if the command doesn't work, suggest a non-privileged alternative or a fix that keeps 'ssudo'
+    - If the command requires installation, suggest a more specific command that would work"""
+    
     prompt = f"Command '{cmd}' failed with error: '{error}'. What's the correct command?"
     return ask_ai(prompt, system_prompt)
 
@@ -580,6 +745,94 @@ def suggest_related_commands(cmd: str) -> str:
     - Group related commands together"""
     prompt = f"Suggest 3-4 related commands for: {cmd}"
     return ask_ai(prompt, system_prompt)
+
+def analyze_sudo_command_safety(cmd: str) -> Dict[str, Any]:
+    """Specialized AI-based analysis for sudo commands to determine if they're safe to run."""
+    # Extract the actual command being run with sudo
+    sudo_cmd_parts = cmd.strip().split()
+    if len(sudo_cmd_parts) < 2:
+        return {
+            "safe": False,
+            "risk_level": "medium",
+            "warning": "Incomplete sudo command.",
+            "safer_alternative": "",
+            "requires_confirmation": True
+        }
+    
+    # Get the command without sudo
+    cmd_without_sudo = ' '.join(sudo_cmd_parts[1:])
+    
+    # Categories of sudo commands
+    benign_sudo_cmds = [
+        'apt update', 'apt upgrade', 'apt install', 'apt-get update', 'apt-get upgrade',
+        'yum update', 'yum upgrade', 'pacman -Syu', 'dnf update', 'zypper update',
+        'systemctl start', 'systemctl stop', 'systemctl restart', 'systemctl status',
+        'service start', 'service stop', 'service restart', 'service status',
+        'cat', 'less', 'more', 'ls', 'find'
+    ]
+    
+    # Common sudo commands that are typically safe
+    if any(cmd_without_sudo.startswith(safe_cmd) for safe_cmd in benign_sudo_cmds):
+        return {
+            "safe": True,
+            "risk_level": "low",
+            "warning": "This is a common sudo command used for system management.",
+            "safer_alternative": "",
+            "requires_confirmation": True  # Still require confirmation for sudo commands
+        }
+    
+    # Dangerous commands that should be blocked even with sudo
+    dangerous_sudo_cmds = [
+        'rm -rf /', 'rm -rf /*', 'dd if=/dev/zero of=/dev/sda', 
+        'mkfs', 'fdisk', 'dd status=none of=/dev/sda', 'shred',
+        'chown -R root:root /', 'chmod -R 777 /',
+        ': > /dev/sda', '> /dev/sda'
+    ]
+    
+    if any(cmd_without_sudo.startswith(dangerous) for dangerous in dangerous_sudo_cmds):
+        return {
+            "safe": False,
+            "risk_level": "critical",
+            "warning": "This sudo command is extremely dangerous and could damage your system permanently.",
+            "safer_alternative": "",
+            "requires_confirmation": True
+        }
+    
+    # For other commands, use the AI to analyze safety
+    system_prompt = """You are a Linux security expert analyzing sudo commands. Your task is to determine if a sudo command is safe to run.
+    Return a JSON object with:
+    - "safe": boolean (true/false)
+    - "risk_level": string ("low", "medium", "high", "critical")
+    - "warning": string (brief explanation of risks if any)
+    - "safer_alternative": string (suggested safer command if applicable)
+    - "requires_confirmation": boolean (whether user should confirm before executing)
+    
+    Guidelines:
+    - Most package management commands (apt, yum, etc.) are generally safe
+    - System service management (systemctl, service) is generally safe
+    - File operations that modify important system files are risky
+    - Commands that could cause data loss are high risk
+    - Commands that could brick the system are critical risk
+    - If unsure, be cautious and mark as requiring confirmation
+    """
+    
+    prompt = f"Analyze the safety of this Linux sudo command: {cmd}"
+    response = ask_ai(prompt, system_prompt)
+    
+    try:
+        if response.startswith('{') and response.endswith('}'):
+            return json.loads(response)
+    except:
+        pass
+    
+    # Fallback: assume medium risk for sudo commands
+    return {
+        "safe": True,  # Allow but with warning
+        "risk_level": "medium",
+        "warning": "This sudo command requires elevated privileges. Review carefully before proceeding.",
+        "safer_alternative": "",
+        "requires_confirmation": True
+    }
 
 def analyze_command_safety(cmd: str) -> Dict[str, Any]:
     """Analyze command safety and provide warnings, with input validation and sanitization. Suggest dry-run alternatives for dangerous commands."""
@@ -598,15 +851,9 @@ def analyze_command_safety(cmd: str) -> Dict[str, Any]:
             "safer_alternative": "",
             "requires_confirmation": False
         }
-    # Block sudo commands
+    # Special handling for sudo commands using AI-based safety analysis
     if cmd.strip().startswith('sudo'):
-        return {
-            "safe": False,
-            "risk_level": "high",
-            "warning": "sudo commands are not supported in iTerminal. Please run them in your system terminal.",
-            "safer_alternative": cmd.strip().replace('sudo ', '', 1),
-            "requires_confirmation": True
-        }
+        return analyze_sudo_command_safety(cmd)
     # Block suspicious characters and patterns
     for pat in blocked_patterns:
         if re.search(pat, cmd):

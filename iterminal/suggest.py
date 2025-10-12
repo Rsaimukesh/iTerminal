@@ -39,6 +39,17 @@ except ImportError:
 
 # Advanced command templates and patterns
 COMMAND_TEMPLATES = {
+    # Common shortcuts
+    'shortcuts': [
+        'i',  # Common shortcut for 'install'
+        'l',  # Common shortcut for 'ls'
+        's',  # Common shortcut for 'status' or 'search'
+        'h',  # Common shortcut for 'history'
+        'c',  # Common shortcut for 'clear'
+        'u',  # Common shortcut for 'update'
+        'q',  # Common shortcut for 'quit'
+        'f',  # Common shortcut for 'find'
+    ],
     'git': [
         'git status',
         'git add .',
@@ -114,7 +125,7 @@ class SmartAutoSuggest(AutoSuggest):
     def get_suggestion(self, buffer, document) -> Optional[Suggestion]:
         text = document.text_before_cursor.strip()
         
-        if not text or len(text) < 2:  # Don't suggest for very short input
+        if not text:  # Only skip suggestions for empty input
             return None
         
         # Check cache first
@@ -259,19 +270,55 @@ class SmartAutoSuggest(AutoSuggest):
         # Combine all commands from templates into one list
         all_commands = [cmd for sublist in COMMAND_TEMPLATES.values() for cmd in sublist]
         
-        # Fuzzy match against all command templates
-        for cmd in all_commands:
-            if FUZZY_AVAILABLE:
-                score = fuzz.token_set_ratio(text.lower(), cmd.lower())
-            else:
-                score = fuzz_partial_ratio(text.lower(), cmd.lower())
-            
-            if score >= 60:
-                suggestions.append({
-                    'command': cmd,
-                    'score': score * 0.9,  # Slightly lower weight for fuzzy
-                    'source': '🔍 Fuzzy'
-                })
+        # Special case for single-character commands (shortcut commands)
+        if len(text) == 1:
+            for cmd in all_commands:
+                # For single-character inputs, prioritize commands that start with the character
+                # or single-character commands that are exact matches
+                if cmd.lower().startswith(text.lower()) or cmd.lower() == text.lower():
+                    score = 100  # Perfect match for shortcuts
+                    suggestions.append({
+                        'command': cmd,
+                        'score': score,
+                        'source': '🔍 Fuzzy'
+                    })
+                    
+                # Also check for common shortcut expansions
+                # For example 'i' could suggest 'install'
+                shortcut_expansions = {
+                    'i': ['install', 'info', 'init'],
+                    'l': ['ls', 'list', 'less'],
+                    's': ['status', 'search', 'show'],
+                    'c': ['clear', 'cat', 'cd'],
+                    'h': ['history', 'help', 'head'],
+                    'u': ['update', 'upgrade', 'use'],
+                    'f': ['find', 'file', 'fetch'],
+                }
+                
+                if text.lower() in shortcut_expansions:
+                    for expansion in shortcut_expansions[text.lower()]:
+                        if expansion in cmd.lower():
+                            score = 95  # High match for shortcut expansions
+                            suggestions.append({
+                                'command': cmd,
+                                'score': score,
+                                'source': '🔍 Fuzzy',
+                                'explanation': f'Expanded from "{text}" to "{expansion}"'
+                            })
+        else:
+            # Regular fuzzy matching for longer inputs
+            for cmd in all_commands:
+                if FUZZY_AVAILABLE:
+                    score = fuzz.token_set_ratio(text.lower(), cmd.lower())
+                else:
+                    score = fuzz_partial_ratio(text.lower(), cmd.lower())
+                
+                if score >= 60:
+                    suggestions.append({
+                        'command': cmd,
+                        'score': score * 0.9,  # Slightly lower weight for fuzzy
+                        'source': '🔍 Fuzzy'
+                    })
         
         return suggestions
     
@@ -356,7 +403,7 @@ class CommandCompleter(Completer):
         text = document.text_before_cursor.strip()
         
         # Don't suggest if text is empty
-        if not text or len(text) < 2:
+        if not text:
             return
             
         # First, try path completion (for file/directory paths)
@@ -459,6 +506,19 @@ def get_user_input(dataset: Dataset, stats: UsageStats, prompt_text: str = 'iTer
     # Create history file in user's home directory
     history_file = os.path.expanduser('~/.iterminal_history')
     
+    # Ensure the history file exists and is writable
+    try:
+        if not os.path.exists(history_file):
+            os.makedirs(os.path.dirname(history_file), exist_ok=True)
+            with open(history_file, 'w') as f:
+                pass  # Create empty file
+        
+        if not os.access(history_file, os.W_OK):
+            os.chmod(history_file, 0o600)  # Read/write for owner only
+    except Exception:
+        # If we can't set up the history file, we'll continue without it
+        pass
+    
     # Create key bindings for custom behavior
     kb = KeyBindings()
     
@@ -506,14 +566,21 @@ def get_user_input(dataset: Dataset, stats: UsageStats, prompt_text: str = 'iTer
     auto_suggest = SmartAutoSuggest(dataset, stats)
     
     try:
+        # Try to create FileHistory with the history file
+        try:
+            history = FileHistory(history_file)
+        except Exception:
+            # If FileHistory fails, use in-memory history
+            from prompt_toolkit.history import InMemoryHistory
+            history = InMemoryHistory()
+            
         # Use prompt_toolkit with enhanced features for inline suggestions
         result = prompt(
             prompt_text,
-            # Temporarily disable completer and auto-suggest to debug input corruption
-            # completer=completer,
-            # auto_suggest=auto_suggest,
+            completer=completer,
+            auto_suggest=auto_suggest,
             complete_while_typing=False,
-            history=FileHistory(history_file),
+            history=history,
             key_bindings=kb,
             complete_in_thread=False,  # Disable threading to avoid race conditions
             mouse_support=True,       # Mouse support

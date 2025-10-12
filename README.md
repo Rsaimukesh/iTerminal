@@ -12,6 +12,8 @@ iTerminal is a modern Linux terminal emulator designed to make the command-line 
 
 **NEW: Smart Command Execution** - iTerminal now skips explanations for valid shell commands and only shows explanations for natural language prompts or corrections.
 
+**NEW: Hyperthreading Optimization** - iTerminal now leverages hyperthreading to parallelize AI requests and significantly improve response times. [Learn more](docs/hyperthread.md).
+
 ---
 
 ## Key Features
@@ -72,6 +74,11 @@ iTerminal now intelligently handles command execution based on input type:
 - ✅ **Valid shell commands** (e.g., `ls`, `cd`, `git status`)
 - ✅ **Commands that execute successfully** (no errors)
 - ✅ **Direct user input** (not AI-generated)
+
+### New Pause Functionality
+- ✅ **Interactive iteration** - Use `pause` command to trigger "Continue to iterate?" prompt
+- ✅ **Customizable messages** - Developers can use `pause_iteration()` with custom messages
+- ✅ **Pause script execution** - Useful for long-running operations and batch processes
 
 ### Examples
 ```
@@ -209,15 +216,34 @@ iTerminal intelligently detects and handles interactive commands:
 - **Remote access**: `ssh`, `telnet`, `ftp`, `sftp`
 - **Terminal multiplexers**: `screen`, `tmux`
 
+### Special Commands
+- **`ssudo`**: Super sudo command that bypasses the regular sudo checks. Use this when you need to run privileged commands in environments where sudo might be restricted or blocked.
+
+- **AI-powered sudo safety analysis**: iTerminal analyzes sudo commands for safety and provides warnings for potentially dangerous operations. Common sudo operations are allowed with minimal warnings, while risky commands display detailed safety information.
+
 ### Helpful Alternatives
 When interactive commands are detected, iTerminal suggests alternatives:
 - `nano` → `cat` (for viewing files)
 - `vim` → `cat` (for viewing files)
 - `top` → `ps aux` (for viewing processes)
 - `cat` (no args) → `cat filename.txt` (with examples)
+- `sudo` (when not available) → `ssudo` (to bypass checks)
 
-### Example
+### Shortcut Command Completion
+
+iTerminal supports tab completion for single-character shortcut commands:
+
+- `i` + [TAB] → Expands to `install` commands like `sudo apt install`
+- `l` + [TAB] → Expands to `ls` commands like `ls -la` 
+- `s` + [TAB] → Expands to `status` commands like `git status`
+- `h` + [TAB] → Expands to `history` or `help` commands
+- `c` + [TAB] → Expands to `clear`, `cat`, etc.
+- `u` + [TAB] → Expands to `update` commands like `sudo apt update`
+- `f` + [TAB] → Expands to `find` commands
+
+### Examples
 ```
+# Input-waiting command example
 iTerminal > cat
 Command 'cat' is waiting for input. Please provide a filename or use Ctrl+D to exit.
 
@@ -227,6 +253,45 @@ Command 'cat' is waiting for input. Please provide a filename or use Ctrl+D to e
 - echo 'text' | cat
 
 💡 To exit input mode, press Ctrl+C
+
+# Using ssudo instead of sudo
+iTerminal > sudo apt update
+It looks like 'sudo' is not available in this environment.
+If you're running iTerminal inside a sandbox (Flatpak, container), use your host terminal to run
+system-level commands like package updates.
+
+You can run the command without 'sudo' here (if appropriate) or run it on your host system.
+
+💡 Tip: Try using 'ssudo' instead, which bypasses these checks.
+
+iTerminal > ssudo apt update
+[sudo] password for user:
+Get:1 http://archive.ubuntu.com/ubuntu jammy InRelease [270 kB]
+
+# AI-powered sudo safety analysis
+
+iTerminal > sudo apt update
+┌─ AI Safety Analysis ─────────────────────────────────────────┐
+│ This is a common sudo command used for system management.    │
+└──────────────────────────────────────────────────────────────┘
+[sudo] password for user:
+WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
+Reading package lists... Done
+Building dependency tree... Done
+Reading state information... Done
+All packages are up to date.
+
+iTerminal > sudo rm -rf /var
+🛑 BLOCKED: This sudo command could delete important system files and render your system unusable.
+
+💡 Consider this safer alternative:
+   sudo rm -rf /var/tmp/*   # Remove temporary files instead of entire /var directory
+
+If you understand the risks and still want to run this command:
+1. Use 'ssudo' instead of 'sudo' to bypass this safety check:
+   ssudo rm -rf /var
+2. Or run it in your host terminal outside iTerminal
+...
 ```
 
 ---
@@ -255,6 +320,25 @@ New Linux users often struggle with remembering commands, understanding errors, 
 - Support for more local LLM frameworks beyond Ollama
 - Enhanced inline suggestion customization
 - Command aliases and shortcuts
+
+---
+
+## Notes and Tips
+
+### Package Manager Warnings
+
+When using apt commands (like `apt update` or `apt install`), you may see this warning:
+
+```
+WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
+```
+
+This is a standard warning from apt, indicating that its command-line interface may change between versions. This warning is normal and doesn't affect the functionality of the commands when used interactively in iTerminal.
+
+- **Why it appears**: apt is primarily designed for interactive use, not scripting
+- **When it appears**: When running apt commands in iTerminal
+- **Impact**: None - commands still work normally
+- **Can it be suppressed**: Yes, but not recommended as it's a good reminder
 
 ---
 
@@ -372,6 +456,7 @@ iTerminal supports the following environment variables:
 - `help` - Show help information
 - `history` - Display command history and usage statistics
 - `fix` - Fix unclear or wrong prompts interactively
+- `pause` - Pause and prompt "Continue to iterate?"
 - `provider` - Switch between AI providers (ollama/openrouter)
 - `ollama` - Configure Ollama settings (model, server URL)
 - `exit` - Exit iTerminal
@@ -395,6 +480,18 @@ This will demonstrate:
 
 ### Test Real-time Command Suggestions
 Run the suggestions test script to see the new real-time suggestion system:
+
+### Test Pause Functionality
+Run the iteration example script to see the pause functionality in action:
+
+```bash
+python scripts/iteration_example.py
+```
+
+This demonstrates:
+- Simple iteration with pause
+- Customized pause messages
+- Progress bar with pause integration
 
 ```bash
 python test_suggestions.py

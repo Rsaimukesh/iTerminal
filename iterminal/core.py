@@ -15,16 +15,49 @@ from .config import get_api_key
 from .dataset import Dataset
 from .suggest import get_user_input
 from .stats import UsageStats
+
+# Import the fix for sudo messages
+try:
+    from .fix_sudo_messages import *  # This will apply the monkey patch
+except:
+    pass  # Ignore if it fails
 import os
 import time
 import json
 from datetime import datetime
-from typing import Dict, Any, Optional
-from concurrent.futures import ThreadPoolExecutor
-from .config import PLUGIN_MODE
+from typing import Dict, Any, Optional, Tuple
 
-# Executor for offloading AI and network-bound calls to background threads
-executor = ThreadPoolExecutor(max_workers=4)
+# Import git command cache for fast responses
+try:
+    from .git_cache import GIT_COMMAND_CACHE
+except ImportError:
+    GIT_COMMAND_CACHE = {}
+    
+# Import command utility functions
+from .command_utils import is_git_command, extract_git_subcommand
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
+import threading
+import multiprocessing
+from .config import PLUGIN_MODE
+from rich.prompt import Confirm
+
+# Determine optimal thread and process counts
+CPU_COUNT = multiprocessing.cpu_count()
+OPTIMAL_THREADS = min(32, CPU_COUNT * 4)  # Hyperthreading: 4 threads per CPU
+OPTIMAL_PROCESSES = max(2, CPU_COUNT - 1)  # Leave one CPU for main thread
+
+# Enhanced executor for hyperthreaded AI and network-bound calls
+executor = ThreadPoolExecutor(max_workers=OPTIMAL_THREADS)
+
+# Separate executor for CPU-intensive operations
+process_executor = ProcessPoolExecutor(max_workers=OPTIMAL_PROCESSES)
+
+# Quick parallel task submission wrapper
+def run_parallel(tasks, use_processes=False):
+    """Run multiple tasks in parallel and return results"""
+    ex = process_executor if use_processes else executor
+    futures = [ex.submit(func, *args) for func, args in tasks]
+    return [future.result() for future in as_completed(futures)]
 
 console = Console()
 
@@ -42,7 +75,8 @@ COMMAND_ALIASES = {
     'import': 'import commands from file',
     'fix': 'fix unclear or wrong prompt',
     'provider': 'set AI provider (ollama/openrouter)',
-    'ollama': 'configure Ollama settings'
+    'ollama': 'configure Ollama settings',
+    'pause': 'pause and prompt to continue iteration'
 }
 
 class SessionManager:
@@ -92,6 +126,17 @@ class SessionManager:
             'errors_encountered': self.errors_encountered,
             'success_rate': ((self.commands_executed - self.errors_encountered) / max(self.commands_executed, 1)) * 100
         }
+
+def pause_iteration(message: str = "Continue to iterate?") -> bool:
+    """Pause and ask user if they want to continue
+    
+    Args:
+        message: The message to display (default: "Continue to iterate?")
+        
+    Returns:
+        bool: True if the user wants to continue, False to pause
+    """
+    return Confirm.ask(message, default=True)
 
 def confirm_command(cmd: str, explanation: str, safety_analysis: Optional[Dict[str, Any]] = None) -> str:
     """Enhanced command confirmation with safety analysis"""
@@ -156,6 +201,7 @@ def show_help():
 • [cyan]fix[/cyan] - Fix unclear or wrong prompts
 • [cyan]provider[/cyan] - Set AI provider (ollama/openrouter)
 • [cyan]ollama[/cyan] - Configure Ollama settings
+• [cyan]pause[/cyan] - Pause and prompt to continue iteration
 • [cyan]exit[/cyan] - Exit iTerminal
 
 [bold]AI Features:[/bold]
@@ -246,26 +292,51 @@ def show_stats(stats: UsageStats):
         console.print("[yellow]No usage statistics available yet.[/yellow]")
 
 def show_dataset(dataset: Dataset):
-    """Enhanced learned commands display"""
-    if hasattr(dataset, 'data') and dataset.data:
-        table = Table(title="Learned Commands", show_header=True, header_style="bold magenta")
+    """Enhanced learned commands display with robust error handling"""
+    if not hasattr(dataset, 'data') or not dataset.data:
+        console.print("[yellow]No commands learned yet.[/yellow]")
+        return
+        
+    # First try: Simple table display
+    try:
+        console.print("\n[bold magenta]Learned Commands[/bold magenta]")
+        
+        # Create a simplified table without complexity (which relies on AI)
+        table = Table(show_header=True, header_style="bold")
         table.add_column("Natural Language", style="cyan", width=30)
         table.add_column("Command", style="yellow", width=25)
         table.add_column("Explanation", style="green", width=40)
-        table.add_column("Complexity", style="blue", width=12)
         
-        for item in dataset.data[-10:]:  # Last 10 learned commands
-            complexity = get_command_complexity(item['command'])
-            table.add_row(
-                item['prompt'][:27] + "..." if len(item['prompt']) > 30 else item['prompt'],
-                item['command'][:22] + "..." if len(item['command']) > 25 else item['command'],
-                item['explanation'][:37] + "..." if len(item['explanation']) > 40 else item['explanation'],
-                complexity.capitalize()
-            )
+        # Get the last 10 commands, or all if less than 10
+        display_items = dataset.data[-10:] if len(dataset.data) > 10 else dataset.data
         
+        for item in display_items:
+            # Simple error handling for each row
+            try:
+                prompt = item.get('prompt', '')[:27] + "..." if len(item.get('prompt', '')) > 30 else item.get('prompt', '')
+                command = item.get('command', '')[:22] + "..." if len(item.get('command', '')) > 25 else item.get('command', '')
+                explanation = item.get('explanation', '')[:37] + "..." if len(item.get('explanation', '')) > 40 else item.get('explanation', '')
+                
+                table.add_row(prompt, command, explanation)
+            except:
+                continue  # Skip problematic items
+                
         console.print(table)
-    else:
-        console.print("[yellow]No commands learned yet.[/yellow]")
+        
+    except Exception as e:
+        # Fallback to super simple list if table fails
+        try:
+            console.print("\n[bold magenta]Learned Commands[/bold magenta]")
+            for i, item in enumerate(dataset.data[-5:]):
+                console.print(f"[cyan]{i+1}. Prompt:[/cyan] {str(item.get('prompt', ''))}")
+                console.print(f"   [yellow]Command:[/yellow] {str(item.get('command', ''))}")
+                console.print(f"   [green]Explanation:[/green] {str(item.get('explanation', ''))}")
+                console.print("---")
+        except Exception as e2:
+            # Ultimate fallback - just print data count
+            console.print(f"[yellow]Dataset contains {len(dataset.data)} commands.[/yellow]")
+            console.print("[red]Could not display dataset contents due to formatting issues.[/red]")
+            console.print(f"[dim]Error: {str(e2)}[/dim]")
 
 def analyze_command_safety_wrapper(cmd: str):
     """Wrapper to analyze and display command safety"""
@@ -391,7 +462,11 @@ def handle_unclear_prompt(user_input: str, dataset: Dataset, stats: UsageStats):
         if err2:
             console.print(Text(err2, style="red"))
         log_entry(f"EDITED_UNCLEAR: {edited}\nOUT: {out2}\nERR: {err2}\nEXPLAIN: {explanation2}")
-    
+        
+        # Save successful edited command to dataset for future use
+        if ret2 == 0:
+            dataset.add(user_input, edited, explanation2)
+            
     elif choice == "alternatives":
         if smart_result.get('alternatives'):
             console.print("\n[bold]Choose an alternative:[/bold]")
@@ -408,6 +483,11 @@ def handle_unclear_prompt(user_input: str, dataset: Dataset, stats: UsageStats):
                     if err3:
                         console.print(Text(err3, style="red"))
                     log_entry(f"ALTERNATIVE_CMD: {selected_alt}\nOUT: {out3}\nERR: {err3}")
+                    
+                    # Save successful alternatives to dataset for future use
+                    if ret3 == 0:
+                        explanation3 = explain_command(selected_alt)
+                        dataset.add(user_input, selected_alt, explanation3)
             except ValueError:
                 console.print("[red]Invalid selection.[/red]")
     
@@ -428,6 +508,11 @@ def handle_unclear_prompt(user_input: str, dataset: Dataset, stats: UsageStats):
                     if err4:
                         console.print(Text(err4, style="red"))
                     log_entry(f"SUGGESTION_CMD: {selected_sug}\nOUT: {out4}\nERR: {err4}")
+                    
+                    # Save successful suggestions to dataset for future use
+                    if ret4 == 0:
+                        explanation4 = explain_command(selected_sug)
+                        dataset.add(user_input, selected_sug, explanation4)
             except ValueError:
                 console.print("[red]Invalid selection.[/red]")
     
@@ -444,12 +529,33 @@ def show_why():
     )
     console.print(Panel(text, title="[Why iTerminal]", border_style="cyan"))
 
+def ensure_history_file():
+    """Ensure history file exists and is writable"""
+    history_file = os.path.expanduser('~/.iterminal_history')
+    try:
+        if not os.path.exists(history_file):
+            os.makedirs(os.path.dirname(history_file), exist_ok=True)
+            with open(history_file, 'w') as f:
+                pass  # Just create the file
+        
+        # Make sure it's writable
+        if not os.access(history_file, os.W_OK):
+            os.chmod(history_file, 0o600)  # Read/write for owner only
+            
+        return True
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not set up history file: {e}[/yellow]")
+        return False
+
 def main_loop():
     """Enhanced main loop with better session management and error handling"""
     get_api_key()  # Ensure API key is set
     dataset = Dataset()
     stats = UsageStats()
     session_manager = SessionManager()
+    
+    # Ensure history file is properly set up
+    ensure_history_file()
     
     # Welcome message with session info
     from iterminal.config import get_ai_provider, get_ollama_status
@@ -503,7 +609,11 @@ def main_loop():
             show_stats(stats)
             continue
         elif user_input.strip().lower() == 'dataset':
-            show_dataset(dataset)
+            try:
+                show_dataset(dataset)
+            except Exception as e:
+                console.print("[red]Error displaying dataset:[/red]", str(e))
+                console.print("[yellow]Try running the dataset repair script:[/yellow] python scripts/repair_dataset.py")
             continue
         elif user_input.strip().lower() == 'session':
             show_session_info(session_manager)
@@ -554,6 +664,11 @@ def main_loop():
         elif user_input.strip().lower() == 'why':
             show_why()
             continue
+        elif user_input.strip().lower() == 'pause':
+            if not pause_iteration():
+                console.print("[yellow]Iteration paused. Press Enter to resume.[/yellow]")
+                input()
+            continue
         
         # Flag tracks input type
         was_natural_prompt = False
@@ -572,10 +687,50 @@ def main_loop():
         if is_probably_shell_command(user_input):
             session_manager.commands_executed += 1
             
+            # FAST PATH: Check for Git commands and provide instant cached response
+            if is_git_command(user_input):
+                git_subcommand = extract_git_subcommand(user_input)
+                if git_subcommand in GIT_COMMAND_CACHE:
+                    # Fast path: Get cached Git explanation before running the command
+                    cached_explanation = GIT_COMMAND_CACHE[git_subcommand]
+                    
+                    # Show a panel with the explanation immediately
+                    console.print(Panel(
+                        Text(cached_explanation, style="cyan"),
+                        title=f"[Git Command: {git_subcommand}]",
+                        border_style="green"
+                    ))
+                    
+                    # Log that we're using the cached response for faster Git commands
+                    log_entry(f"FAST_GIT_CACHE: {user_input}")
+                    
+                    # Add a visual indicator that the command is being executed
+                    with console.status("[bold green]Running Git command...[/]"):
+                        # Execute the Git command
+                        ret, out, err = run_shell_command(user_input)
+                        
+                    # Show the output of the command
+                    if out:
+                        console.print(Text(out, style="green"))
+                    if err:
+                        console.print(Text(err, style="red"))
+                    
+                    # Skip the rest of the processing for this command
+                    continue
+            
             # Analyze safety before execution
             safety_analysis = analyze_command_safety(user_input)
             if safety_analysis.get('requires_confirmation', False):
-                explanation = explain_command(user_input)
+                # Skip AI explanation for Git commands that have cached explanations
+                if is_git_command(user_input):
+                    git_subcommand = extract_git_subcommand(user_input)
+                    if git_subcommand in GIT_COMMAND_CACHE:
+                        explanation = GIT_COMMAND_CACHE[git_subcommand]
+                    else:
+                        explanation = explain_command(user_input)
+                else:
+                    explanation = explain_command(user_input)
+                
                 choice = confirm_command(user_input, explanation, safety_analysis)
                 if choice == "n":
                     continue
@@ -638,6 +793,17 @@ def main_loop():
                     from .config import get_ai_provider
                     current_provider = get_ai_provider().upper()
                     
+                    # Prevent circular suggestions between sudo and ssudo
+                    first_word_original = user_input.strip().split()[0].lower() if user_input.strip() else ""
+                    first_word_suggested = actual_command.strip().split()[0].lower() if actual_command.strip() else ""
+                    
+                    # If user typed 'ssudo' and AI suggests 'sudo', or vice versa, don't show the suggestion
+                    if (first_word_original == "ssudo" and first_word_suggested == "sudo") or \
+                       (first_word_original == "sudo" and first_word_suggested == "ssudo"):
+                        # Skip this suggestion to avoid a loop
+                        console.print("[yellow]Avoiding circular suggestion between sudo and ssudo.[/yellow]")
+                        return
+                    
                     if ai_explanation:
                         # Show both the command and the AI's explanation
                         console.print(f"[yellow]Did you mean:[/yellow] [bold]{actual_command}[/bold]? [dim]({current_provider} AI)[/dim]")
@@ -657,6 +823,10 @@ def main_loop():
                         if err2:
                             console.print(Text(err2, style="red"))
                         log_entry(f"FIXED_CMD: {actual_command}\nOUT: {out2}\nERR: {err2}\nEXPLAIN: {ai_explanation or explanation}")
+                        
+                        # Save successful command corrections to dataset for future use
+                        if ret2 == 0:
+                            dataset.add(user_input, actual_command, ai_explanation or explanation)
                     elif choice == "edit":
                         edited = Prompt.ask("Edit command", default=correction)
                         stats.add(edited)
@@ -668,6 +838,10 @@ def main_loop():
                         if err3:
                             console.print(Text(err3, style="red"))
                         log_entry(f"EDITED_CMD: {edited}\nOUT: {out3}\nERR: {err3}\nEXPLAIN: {explanation2}")
+                        
+                        # Save successful edited commands to dataset for future use
+                        if ret3 == 0:
+                            dataset.add(user_input, edited, explanation2)
                     elif choice == "related":
                         related = suggest_related_commands(user_input)
                         console.print(Panel(Text(related, style="yellow"), title="[Related Commands]"))
@@ -681,9 +855,18 @@ def main_loop():
             if dataset_result:
                 shell_cmd = dataset_result['command']
                 explanation = dataset_result['explanation']
+                # Check if this is an exact match (case insensitive)
+                is_exact_match = dataset_result.get('prompt', '').lower() == user_input.lower()
+                
                 console.print(Panel(Text(shell_cmd, style="bold yellow"), title="[Suggestion from Dataset]"))
                 console.print(Text(explanation, style="italic cyan"))
-                choice = Prompt.ask("Run this command?", choices=["Y", "n", "edit", "related"], default="Y")
+                
+                # Auto-execute if exact match, otherwise ask for confirmation
+                if is_exact_match:
+                    console.print("[green]Exact match found in dataset. Auto-executing...[/green]")
+                    choice = "Y"
+                else:
+                    choice = Prompt.ask("Run this command?", choices=["Y", "n", "edit", "related"], default="Y")
             else:
                 # Use smart command generation and explanation in parallel for unclear prompts
                 smart_future = executor.submit(smart_command_generation, user_input)
@@ -723,14 +906,35 @@ def main_loop():
             
             if choice == "Y":
                 stats.add(shell_cmd)
+                
+                # Check if this is a Git command and use cache for fast explanation
+                git_explanation_shown = False
+                if is_git_command(shell_cmd):
+                    git_subcommand = extract_git_subcommand(shell_cmd)
+                    if git_subcommand in GIT_COMMAND_CACHE:
+                        # Show the cached Git explanation before running the command
+                        git_explanation = GIT_COMMAND_CACHE[git_subcommand]
+                        console.print(Panel(
+                            Text(git_explanation, style="cyan"),
+                            title=f"[Git Command: {git_subcommand}]",
+                            border_style="green"
+                        ))
+                        git_explanation_shown = True
+                        # Update the explanation to include the cached one
+                        explanation = f"{explanation}\n\n{git_explanation}"
+                        log_entry(f"GIT_CACHE_USED: {shell_cmd}")
+                
+                # Execute the command
                 ret, out, err = run_shell_command(shell_cmd)
                 if out:
                     console.print(Text(out, style="green"))
                 if err:
                     console.print(Text(err, style="red"))
-                # Show explanation for natural language prompts (was_natural_prompt == True)
-                if was_natural_prompt:
+                
+                # Show explanation for natural language prompts if not already shown from git cache
+                if was_natural_prompt and not git_explanation_shown:
                     console.print(Panel(Text(explanation, style="cyan"), title="[Explanation]"))
+                
                 log_entry(f"NL_CMD: {user_input}\nSHELL: {shell_cmd}\nOUT: {out}\nERR: {err}\nEXPLAIN: {explanation}")
             elif choice == "edit":
                 edited = Prompt.ask("Edit command", default=shell_cmd)
@@ -743,6 +947,10 @@ def main_loop():
                 if err2:
                     console.print(Text(err2, style="red"))
                 log_entry(f"EDITED_NL_CMD: {edited}\nOUT: {out2}\nERR: {err2}\nEXPLAIN: {explanation2}")
+                
+                # Save successful edited commands to dataset for future use
+                if ret2 == 0:
+                    dataset.add(user_input, edited, explanation2)
             elif choice == "related":
                 related = suggest_related_commands(user_input)
                 console.print(Panel(Text(related, style="yellow"), title="[Related Commands]"))
