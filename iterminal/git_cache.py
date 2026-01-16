@@ -2,6 +2,54 @@
 Pre-cached responses for common Git commands to reduce AI query latency
 """
 
+# Common Git command typos and their corrections
+GIT_TYPO_CORRECTIONS = {
+    "gt": "git",
+    "gti": "git",
+    "got": "git",
+    "gi": "git",
+    "gir": "git",
+    "git statsu": "git status",
+    "git stats": "git status",
+    "git satus": "git status",
+    "git stauts": "git status",
+    "git stat": "git status",
+    "git ad": "git add",
+    "git addr": "git add",
+    "git addd": "git add",
+    "git comit": "git commit",
+    "git commit": "git commit",
+    "git committ": "git commit",
+    "git commi": "git commit",
+    "git pussh": "git push",
+    "git pus": "git push",
+    "git psuh": "git push",
+    "git pul": "git pull",
+    "git pulll": "git pull",
+    "git pll": "git pull",
+    "git branc": "git branch",
+    "git brach": "git branch",
+    "git branchh": "git branch",
+    "git chekcout": "git checkout",
+    "git chekout": "git checkout",
+    "git checkot": "git checkout",
+    "git checkout": "git checkout",
+    "git clon": "git clone",
+    "git clonee": "git clone",
+    "git clne": "git clone",
+    "git lon": "git log",
+    "git logg": "git log",
+    "git lg": "git log",
+    "git dif": "git diff",
+    "git difff": "git diff",
+    "git merge": "git merge",
+    "git merg": "git merge",
+    "git mergee": "git merge",
+    "git fetch": "git fetch",
+    "git fetc": "git fetch",
+    "git fetchh": "git fetch",
+}
+
 GIT_COMMAND_CACHE = {
     "git": """
 Git is a distributed version control system used to track changes in source code during software development.

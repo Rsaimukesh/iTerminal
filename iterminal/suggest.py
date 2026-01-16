@@ -4,12 +4,21 @@ try:
     from prompt_toolkit.shortcuts import prompt
     from prompt_toolkit.history import FileHistory
     from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
-    from prompt_toolkit.key_bindings import KeyBindings
+    from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.auto_suggest import AutoSuggest, Suggestion
     PROMPT_TOOLKIT_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     PROMPT_TOOLKIT_AVAILABLE = False
+    print(f"Warning: prompt_toolkit import failed: {e}")
     # Create dummy classes for when prompt_toolkit is not available
+    class Completer:
+        pass
+    class Completion:
+        pass
+    class PathCompleter:
+        pass
+    class Document:
+        pass
     class AutoSuggest:
         pass
     class Suggestion:
@@ -499,7 +508,10 @@ class CommandCompleter(Completer):
 
 def get_user_input(dataset: Dataset, stats: UsageStats, prompt_text: str = 'iTerminal > '):
     """Enhanced user input with real-time inline suggestions"""
-    if not PROMPT_TOOLKIT_AVAILABLE:
+    import sys
+    
+    # Check if we're in a proper terminal
+    if not sys.stdin.isatty() or not PROMPT_TOOLKIT_AVAILABLE:
         # Fallback to simple rich prompt
         return Prompt.ask(prompt_text)
     
@@ -522,15 +534,8 @@ def get_user_input(dataset: Dataset, stats: UsageStats, prompt_text: str = 'iTer
     # Create key bindings for custom behavior
     kb = KeyBindings()
     
-    @kb.add('up')
-    def _(event):
-        """Navigate up in history"""
-        event.app.current_buffer.auto_up()
-    
-    @kb.add('down')
-    def _(event):
-        """Navigate down in history"""
-        event.app.current_buffer.auto_down()
+    # Note: We don't override up/down as they work by default with history
+    # prompt_toolkit handles them automatically when history is provided
     
     @kb.add('tab')
     def _(event):
@@ -548,14 +553,7 @@ def get_user_input(dataset: Dataset, stats: UsageStats, prompt_text: str = 'iTer
         """Handle shift+tab for reverse completion"""
         event.app.current_buffer.complete_previous()
     
-    @kb.add('right')
-    def _(event):
-        """Accept current suggestion with right arrow"""
-        buffer = event.app.current_buffer
-        if buffer.suggestion:
-            buffer.insert_text(buffer.suggestion.text)
-    
-    @kb.add('ctrl-space')
+    @kb.add('c-space')
     def _(event):
         """Show all available suggestions"""
         buffer = event.app.current_buffer
@@ -579,19 +577,20 @@ def get_user_input(dataset: Dataset, stats: UsageStats, prompt_text: str = 'iTer
             prompt_text,
             completer=completer,
             auto_suggest=auto_suggest,
-            complete_while_typing=False,
+            complete_while_typing=True,  # Enable auto-complete while typing
             history=history,
             key_bindings=kb,
-            complete_in_thread=False,  # Disable threading to avoid race conditions
+            complete_in_thread=True,  # Enable threading for better performance
             mouse_support=True,       # Mouse support
             enable_history_search=True,  # Ctrl+R for history search
-            complete_style='readline',  # Better completion style
             # Enhanced styling for inline suggestions
             style=None,  # Use default style for better ghost-text visibility
             # Ensure proper input handling
             input_processors=None,
-            # Disable any potential input corruption
-            enable_system_prompt=False,
+            # vi_mode=False ensures emacs mode with proper up/down arrow support
+            vi_mode=False,
+            # Show completion menu automatically
+            complete_style='MULTI_COLUMN',
         )
         return result.strip()  # Ensure clean input
     except Exception as e:

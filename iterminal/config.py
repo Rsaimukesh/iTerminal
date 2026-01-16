@@ -27,7 +27,7 @@ def refresh_env():
 
 def get_ai_provider():
     """Get the current AI provider from environment variable or default"""
-    return os.environ.get('ITERMINAL_AI_PROVIDER', 'ollama').lower()
+    return os.environ.get('ITERMINAL_AI_PROVIDER', 'openrouter').lower()
 
 AI_PROVIDER = get_ai_provider()  # 'ollama' or 'openrouter'
 OLLAMA_BASE_URL = os.environ.get('OLLAMA_BASE_URL', 'http://localhost:11434')

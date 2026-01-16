@@ -133,8 +133,42 @@ def is_git_command(command: str) -> bool:
     # Check if command starts with "git" followed by a space or nothing
     if command.startswith("git ") or command == "git":
         return True
+    
+    # Check if it's a common typo that should be treated as git
+    try:
+        from .git_cache import GIT_TYPO_CORRECTIONS
+        if command.lower() in GIT_TYPO_CORRECTIONS:
+            return True
+    except ImportError:
+        pass
         
     return False
+
+def correct_git_typo(command: str) -> str:
+    """Correct common Git command typos
+    
+    Args:
+        command: The command string to correct
+        
+    Returns:
+        str: The corrected command or original if no correction needed
+    """
+    try:
+        from .git_cache import GIT_TYPO_CORRECTIONS
+        
+        # Check for exact match
+        if command.lower() in GIT_TYPO_CORRECTIONS:
+            return GIT_TYPO_CORRECTIONS[command.lower()]
+        
+        # Check if the command starts with a typo
+        for typo, correction in GIT_TYPO_CORRECTIONS.items():
+            if command.lower().startswith(typo + " "):
+                # Replace the typo with the correction
+                return correction + command[len(typo):]
+        
+        return command
+    except ImportError:
+        return command
 
 def extract_git_subcommand(command: str) -> str:
     """Extract the git subcommand from a git command

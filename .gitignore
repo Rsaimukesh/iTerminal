@@ -11,6 +11,9 @@ iterminal_*.log
 .iterminal_history
 .iterminal_dataset.json
 .iterminal_usage.json
+.iterminal_session.json
+.iterminal_stats.json
+iterminal_cache/
 
 # Python
 __pycache__/

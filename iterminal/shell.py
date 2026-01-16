@@ -269,6 +269,27 @@ def run_shell_command(cmd: str) -> tuple:
     
     first_token = tokens[0].lower()
     
+    # Auto-translate package manager commands in Flatpak/container environments
+    package_managers = ['apt', 'apt-get', 'dnf', 'yum', 'pacman']
+    if first_token in package_managers or (first_token == 'sudo' and len(tokens) > 1 and tokens[1] in package_managers):
+        # Check if we're in a Flatpak/container environment
+        if os.path.exists('/usr/bin/flatpak-spawn') or os.path.exists('/app/bin/flatpak-spawn'):
+            # Auto-translate to flatpak-spawn command
+            original_cmd = cmd
+            # Use pkexec instead of sudo for GUI password prompts in Flatpak
+            if first_token == 'sudo':
+                # Replace sudo with pkexec for better GUI integration
+                cmd_without_sudo = ' '.join(tokens[1:])
+                cmd = f"flatpak-spawn --host pkexec {cmd_without_sudo}"
+            else:
+                cmd = f"flatpak-spawn --host pkexec {cmd}"
+            print(f"Auto-translating package manager command:")
+            print(f"  {original_cmd}")
+            print(f"  → {cmd}")
+            print(f"  Using pkexec for GUI authentication on host system\n")
+            tokens = cmd.strip().split()
+            first_token = tokens[0].lower()
+    
     # Convert ssudo command to sudo command for compatibility
     if first_token == 'ssudo':
         # Replace ssudo with sudo and process as a regular sudo command

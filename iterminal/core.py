@@ -34,7 +34,7 @@ except ImportError:
     GIT_COMMAND_CACHE = {}
     
 # Import command utility functions
-from .command_utils import is_git_command, extract_git_subcommand
+from .command_utils import is_git_command, extract_git_subcommand, correct_git_typo
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 import threading
 import multiprocessing
@@ -138,11 +138,71 @@ def pause_iteration(message: str = "Continue to iterate?") -> bool:
     """
     return Confirm.ask(message, default=True)
 
+def is_safe_auto_execute_command(cmd: str) -> bool:
+    """Check if a command is safe to auto-execute without confirmation"""
+    # List of safe commands that can auto-execute
+    safe_commands = [
+        'ls', 'pwd', 'whoami', 'date', 'uptime', 'df', 'free', 'top', 'ps',
+        'cat', 'less', 'more', 'head', 'tail', 'wc', 'grep', 'find', 'which',
+        'echo', 'history', 'env', 'printenv', 'uname', 'hostname', 'id',
+        'groups', 'finger', 'w', 'last', 'lastlog', 'file', 'stat', 'type'
+    ]
+    
+    cmd_parts = cmd.strip().split()
+    if not cmd_parts:
+        return False
+    
+    first_word = cmd_parts[0].lower()
+    
+    # Remove 'sudo' prefix for checking
+    if first_word == 'sudo' and len(cmd_parts) > 1:
+        first_word = cmd_parts[1].lower()
+    
+    # Check for safe commands
+    if first_word in safe_commands:
+        return True
+    
+    # Safe git commands
+    if first_word == 'git' and len(cmd_parts) > 1:
+        git_safe_cmds = ['status', 'log', 'diff', 'show', 'branch', 'tag', 'remote', 'ls-files']
+        if cmd_parts[1] in git_safe_cmds:
+            return True
+    
+    # Safe package manager commands (update only, not upgrade/install/remove)
+    if 'apt update' in cmd or 'apt-get update' in cmd:
+        return True
+    if 'dnf check-update' in cmd or 'yum check-update' in cmd:
+        return True
+    
+    return False
+
 def confirm_command(cmd: str, explanation: str, safety_analysis: Optional[Dict[str, Any]] = None) -> str:
     """Enhanced command confirmation with safety analysis"""
     # Create a more informative panel
     panel_content = f"[bold yellow]{cmd}[/bold yellow]\n\n[italic cyan]{explanation}[/italic cyan]"
     
+    # Check if this is a safe/common command that should auto-execute
+    safe_commands = [
+        'ls', 'pwd', 'whoami', 'date', 'uptime', 'df', 'free', 'top', 'ps',
+        'cat', 'less', 'more', 'head', 'tail', 'wc', 'grep', 'find', 'which',
+        'echo', 'history', 'env', 'printenv', 'uname', 'hostname'
+    ]
+    
+    # Check if command starts with safe read-only operations
+    cmd_first_word = cmd.strip().split()[0] if cmd.strip() else ''
+    is_safe_command = cmd_first_word in safe_commands
+    
+    # Check for safe git commands
+    if cmd.startswith('git '):
+        git_safe_cmds = ['status', 'log', 'diff', 'show', 'branch', 'tag', 'remote', 'ls-files']
+        git_subcmd = cmd.split()[1] if len(cmd.split()) > 1 else ''
+        is_safe_command = git_subcmd in git_safe_cmds
+    
+    # Check for apt update/upgrade which are safe
+    if 'apt update' in cmd or 'apt-get update' in cmd:
+        is_safe_command = True
+    
+    auto_execute = False
     if safety_analysis:
         risk_level = safety_analysis.get('risk_level', 'low')
         warning = safety_analysis.get('warning', '')
@@ -154,12 +214,24 @@ def confirm_command(cmd: str, explanation: str, safety_analysis: Optional[Dict[s
                 panel_content += f"\n[red]{warning}[/red]"
             if safer_alt:
                 panel_content += f"\n[green]Safer alternative: {safer_alt}[/green]"
+            is_safe_command = False  # Never auto-execute dangerous commands
         elif risk_level == 'medium':
             panel_content += f"\n\n[yellow]⚠️  RISK LEVEL: {risk_level.upper()}[/yellow]"
             if warning:
                 panel_content += f"\n[yellow]{warning}[/yellow]"
+            is_safe_command = False
+        elif risk_level == 'low' and is_safe_command:
+            auto_execute = True
+    elif is_safe_command:
+        # No safety analysis but command is in safe list
+        auto_execute = True
     
-    console.print(Panel(panel_content, title="[AI Suggestion]", border_style="yellow"))
+    console.print(Panel(panel_content, title="[Explanation]", border_style="yellow"))
+    
+    # Auto-execute safe commands without prompting
+    if auto_execute:
+        console.print("[dim]Auto-executing safe command...[/dim]")
+        return "Y"
     
     choices = ["Y", "n", "edit", "related", "safety"]
     if safety_analysis and safety_analysis.get('requires_confirmation', False):
@@ -687,6 +759,13 @@ def main_loop():
         if is_probably_shell_command(user_input):
             session_manager.commands_executed += 1
             
+            # Auto-correct Git typos immediately without confirmation
+            if is_git_command(user_input):
+                corrected_input = correct_git_typo(user_input)
+                if corrected_input != user_input:
+                    console.print(f"[yellow]Auto-correcting:[/yellow] {user_input} → [bold]{corrected_input}[/bold]")
+                    user_input = corrected_input
+            
             # FAST PATH: Check for Git commands and provide instant cached response
             if is_git_command(user_input):
                 git_subcommand = extract_git_subcommand(user_input)
@@ -802,8 +881,43 @@ def main_loop():
                        (first_word_original == "sudo" and first_word_suggested == "ssudo"):
                         # Skip this suggestion to avoid a loop
                         console.print("[yellow]Avoiding circular suggestion between sudo and ssudo.[/yellow]")
-                        return
+                        continue
                     
+                    # Auto-correct for Git commands and simple typos without confirmation
+                    should_auto_correct = False
+                    
+                    # Check if it's a Git command with minor typo
+                    if is_git_command(actual_command) and not is_git_command(user_input):
+                        # User tried to use Git but made a typo (e.g., "gt status" -> "git status")
+                        should_auto_correct = True
+                    # Check for very similar commands (minor typos)
+                    elif len(user_input) > 3 and len(actual_command) > 3:
+                        # Calculate similarity - if correction is very similar, auto-correct
+                        from difflib import SequenceMatcher
+                        similarity = SequenceMatcher(None, user_input.lower(), actual_command.lower()).ratio()
+                        if similarity > 0.8:  # More than 80% similar
+                            should_auto_correct = True
+                    
+                    if should_auto_correct:
+                        # Auto-correct without asking
+                        console.print(f"[yellow]Auto-correcting:[/yellow] [bold]{actual_command}[/bold] [dim]({current_provider} AI)[/dim]")
+                        if ai_explanation:
+                            console.print(f"[dim cyan]{ai_explanation}[/dim cyan]")
+                        
+                        stats.add(actual_command)
+                        ret2, out2, err2 = run_shell_command(actual_command)
+                        if out2:
+                            console.print(Text(out2, style="green"))
+                        if err2:
+                            console.print(Text(err2, style="red"))
+                        log_entry(f"AUTO_CORRECTED: {user_input} -> {actual_command}\nOUT: {out2}\nERR: {err2}\nEXPLAIN: {ai_explanation or explanation}")
+                        
+                        # Save successful auto-corrections to dataset for future use
+                        if ret2 == 0:
+                            dataset.add(user_input, actual_command, ai_explanation or explanation)
+                        continue
+                    
+                    # For other corrections, show suggestion and ask
                     if ai_explanation:
                         # Show both the command and the AI's explanation
                         console.print(f"[yellow]Did you mean:[/yellow] [bold]{actual_command}[/bold]? [dim]({current_provider} AI)[/dim]")
@@ -861,9 +975,15 @@ def main_loop():
                 console.print(Panel(Text(shell_cmd, style="bold yellow"), title="[Suggestion from Dataset]"))
                 console.print(Text(explanation, style="italic cyan"))
                 
-                # Auto-execute if exact match, otherwise ask for confirmation
-                if is_exact_match:
-                    console.print("[green]Exact match found in dataset. Auto-executing...[/green]")
+                # Check if this is a safe command that should auto-execute
+                safe_auto_execute = is_safe_auto_execute_command(shell_cmd)
+                
+                # Auto-execute if exact match OR if it's a safe command, otherwise ask for confirmation
+                if is_exact_match or safe_auto_execute:
+                    if is_exact_match:
+                        console.print("[green]Exact match found in dataset. Auto-executing...[/green]")
+                    else:
+                        console.print("[dim]Auto-executing safe command...[/dim]")
                     choice = "Y"
                 else:
                     choice = Prompt.ask("Run this command?", choices=["Y", "n", "edit", "related"], default="Y")

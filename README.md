@@ -4,6 +4,8 @@
 
 iTerminal is a modern Linux terminal emulator designed to make the command-line interface **friendly, accessible, and educational** — especially for beginners. It combines traditional shell functionality with AI-powered natural language understanding, enabling users to enter either standard commands or plain English prompts.
 
+**Version 2.0** - Enhanced architecture with modular design, improved extensibility, and comprehensive testing framework.
+
 **NEW: Enhanced Smart Command Generation** - iTerminal now intelligently handles wrong, unclear, or ambiguous prompts by generating multiple command interpretations and providing helpful suggestions.
 
 **NEW: Real-time Command Suggestions** - iTerminal now provides intelligent, real-time command suggestions as you type, with fuzzy matching and AI fallback.
@@ -651,6 +653,25 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,  
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE  
 SOFTWARE.
+
+---
+
+## Architecture
+
+iTerminal 2.0 features a clean, modular architecture based on SOLID principles and design patterns. For detailed information, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
+### Key Components
+
+- **Interfaces Layer**: Abstract contracts for AI providers and shell executors
+- **Models Layer**: Domain models for commands, sessions, and execution results
+- **Services Layer**: Business logic for AI interactions and command management
+- **Core Layer**: Implementation of specific features and orchestration
+
+### Benefits
+- ✅ **Extensible**: Easy to add new AI providers or command handlers
+- ✅ **Testable**: Mock interfaces for comprehensive unit testing
+- ✅ **Maintainable**: Clear separation of concerns and single responsibility
+- ✅ **Type-safe**: Full type hints and data validation
 
 ---
 
