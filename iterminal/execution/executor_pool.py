@@ -61,7 +61,7 @@ class ExecutorPool:
         
         self._initialized = False
     
-    def get_thread_executor(self) -> ThreadExecutor:
+    def get_thread_executor(self) -> ThreadPoolExecutor:
         """Get thread executor."""
         if not self._initialized:
             self.initialize()
