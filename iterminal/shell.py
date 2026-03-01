@@ -4,8 +4,9 @@ import shutil
 import re
 import os
 import time
-from .config import FILTER_APT_WARNINGS
+from iterminal.config import FILTER_APT_WARNINGS
 from .command_utils import command_exists, get_command_path, is_sudo_available, sudo_run_test
+from .progress import execute_with_progress
 
 # Import performance monitoring if available
 try:
@@ -159,19 +160,32 @@ def is_dangerous_command(cmd: str) -> bool:
     return any(pattern.search(cmd) for pattern in DANGEROUS_PATTERNS)
 
 
-def execute_subprocess(cmd: str) -> tuple:
-    """Execute command and return (returncode, stdout, stderr)."""
+def execute_subprocess(cmd: str, show_progress: bool = True) -> tuple:
+    """
+    Execute command and return (returncode, stdout, stderr).
+    
+    Args:
+        cmd: Command to execute
+        show_progress: Whether to show progress bar for long-running operations
+    """
     try:
-        process = subprocess.Popen(
-            cmd, 
-            shell=True, 
-            stdout=subprocess.PIPE, 
-            stderr=subprocess.PIPE, 
-            text=True
-        )
-        stdout, stderr = process.communicate()
+        # Use progress-tracked execution for package manager and other long-running commands
+        if show_progress and any(pkg_cmd in cmd.lower() for pkg_cmd in ['apt', 'yum', 'dnf', 'pacman', 'pip', 'npm']):
+            returncode, stdout, stderr = execute_with_progress(cmd, show_progress=True)
+        else:
+            # Standard execution for other commands
+            process = subprocess.Popen(
+                cmd, 
+                shell=True, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE, 
+                text=True
+            )
+            stdout, stderr = process.communicate()
+            returncode = process.returncode
+        
         stderr = filter_apt_warning(stderr)
-        return process.returncode, stdout, stderr
+        return returncode, stdout, stderr
     except Exception as e:
         return -1, '', str(e)
 
