@@ -6,6 +6,8 @@ iTerminal is a modern Linux terminal emulator designed to make the command-line 
 
 **Version 2.0** - Enhanced architecture with modular design, improved extensibility, and comprehensive testing framework.
 
+**NEW: Real-time Progress Bars** - iTerminal now displays intelligent progress bars for long-running operations like `apt update`, `apt install`, and other package manager commands. Shows real-time installation status and percentage completion.
+
 **NEW: Enhanced Smart Command Generation** - iTerminal now intelligently handles wrong, unclear, or ambiguous prompts by generating multiple command interpretations and providing helpful suggestions.
 
 **NEW: Real-time Command Suggestions** - iTerminal now provides intelligent, real-time command suggestions as you type, with fuzzy matching and AI fallback.
@@ -19,6 +21,9 @@ iTerminal is a modern Linux terminal emulator designed to make the command-line 
 ---
 
 ## Key Features
+
+- **Real-time Progress Bars**  
+  Long-running operations like `apt update` and `apt install` display intelligent progress bars showing installation status, percentage completion, and current package name.
 
 - **Hybrid Input System**  
   Accepts both traditional shell commands (e.g., `sudo apt update`) and natural language prompts (e.g., "update my system").
@@ -100,6 +105,47 @@ iTerminal > upadte
 Error: command not found
 Did you mean: update?
 ```
+
+---
+
+## Real-time Progress Bars
+
+iTerminal displays intelligent progress bars for long-running operations, making your wait times clear and visible:
+
+### How Progress Bars Work
+- **Automatic Detection**: Automatically detects package manager operations (apt, yum, dnf, pacman, pip, npm)
+- **Real-time Updates**: Shows live progress as packages are downloaded and installed
+- **Detailed Status**: Displays current package name and operation (e.g., "Installing: libqt5core5t64")
+- **Percentage Tracking**: Shows overall progress percentage from 0% to 100%
+
+### Supported Commands
+Package manager commands automatically show progress:
+- **Debian/Ubuntu**: `apt`, `apt-get`, `apt update`, `apt install`, `apt upgrade`
+- **Red Hat/Fedora**: `yum`, `dnf`
+- **Arch Linux**: `pacman`
+- **Python**: `pip`, `pip3`
+- **Node.js**: `npm`
+
+### Example Progress Display
+```
+⠙ Installing packages...                    [████░░░░░░░░░░░░░░░░░░░░░░░░] 15%
+
+// Updates to:
+⠙ Installing: libqt5core5t64                [████████████░░░░░░░░░░░░░░░░] 45%
+
+// Then:
+⠙ Processing triggers...                    [████████████████████░░░░░░░░] 75%
+
+// Complete:
+✓ Installation complete!                    [████████████████████████████] 100%
+```
+
+### Features
+- ✅ **Non-blocking**: Progress bar doesn't interfere with command output
+- ✅ **Smart Detection**: Only shows for operations that benefit from progress tracking
+- ✅ **Clean UI**: Uses elegant spinner and progress bar from Rich library
+- ✅ **Fallback Mode**: Gracefully handles operations that don't provide progress data
+- ✅ **Zero Configuration**: Works out of the box, no settings needed
 
 ---
 
